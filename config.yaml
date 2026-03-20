@@ -1,0 +1,25 @@
+# Real Estate Deal Scout — Investment Configuration
+# All fields are required unless marked with a default comment.
+
+criteria:
+  max_price: 500000          # USD — maximum purchase price
+  min_beds: 3                # minimum bedrooms
+  max_dom: 30                # maximum days on market
+  target_cap_rate: 0.05      # 5% minimum cap rate for shortlist ranking
+  walkscore_min: 50          # minimum Walk Score (0-100)
+  dom_outlier_multiplier: 2.0  # flag if DOM > 2x market average
+
+financial_assumptions:
+  down_payment_pct: 0.25     # 25% down payment
+  loan_rate_annual: 0.07     # 7% annual interest rate
+  loan_term_years: 30        # 30-year mortgage
+  vacancy_rate: 0.08         # 8% vacancy allowance
+  management_fee_pct: 0.10   # 10% of gross rent for property management
+  maintenance_pct_of_value: 0.01  # 1% of property value annually
+  insurance_annual: 1200.0   # USD annual insurance (adjust by market)
+  closing_cost_pct: 0.03     # 3% closing costs on purchase price
+  property_tax_rate_pct: 0.012  # 1.2% fallback if not in listing data
+
+output:
+  max_shortlist: 5           # maximum properties in ranked shortlist
+  market: "Austin, TX"       # target market (overridable via --market CLI flag)
