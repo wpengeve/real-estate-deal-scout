@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.backends.legacy:build"
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "real-estate-deal-scout"
@@ -25,6 +25,10 @@ dev = [
 
 [project.scripts]
 scout = "scout:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tools*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
