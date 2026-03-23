@@ -1,6 +1,19 @@
 # Real Estate Deal Scout — Investment Configuration
 # All fields are required unless marked with a default comment.
 
+fetch:
+  data_source: fixtures        # "fixtures" or "redfin"
+  redfin_region_id: 118        # King County, WA
+  redfin_region_type: 5        # 5=county, 6=city
+  redfin_max_homes: 350        # Redfin hard cap per request
+  # To find your region_id: redfin.com → search area → Download All → inspect URL
+
+enrich:
+  hud_state_fips: "53"                 # WA=53 (census.gov/geo/reference/ansi_statetables)
+  hud_county_name: "King County"       # county to look up HUD Fair Market Rents for
+  # Requires HUD_API_KEY in .env — free at huduser.gov/portal/dataset/fmr-api.html
+
+
 criteria:
   max_price: 500000          # USD — maximum purchase price
   min_beds: 3                # minimum bedrooms
@@ -24,4 +37,4 @@ financial_assumptions:
 output:
   max_shortlist: 5           # maximum properties in ranked shortlist
   market: "Seattle, WA"      # target market (overridable via --market CLI flag)
-  use_mock_ranker: false     # set true to skip Claude API call (uses heuristic ranking)
+  use_mock_ranker: true      # set true to skip Claude API call (uses heuristic ranking)

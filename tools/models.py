@@ -15,6 +15,18 @@ from pydantic import BaseModel, Field
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
+class FetchConfig(BaseModel):
+    data_source: str = "fixtures"      # "fixtures" or "redfin"
+    redfin_region_id: int = 118        # King County, WA — find yours: go to redfin.com,
+    redfin_region_type: int = 5        # search your area, click Download All, check the URL
+    redfin_max_homes: int = 350        # Redfin's hard cap per request
+
+
+class EnrichConfig(BaseModel):
+    hud_state_fips: str = "53"              # WA=53; see census.gov/geo/reference/ansi_statetables
+    hud_county_name: str = "King County"    # county name to match in HUD FMR response
+
+
 class ScreeningCriteria(BaseModel):
     max_price: float
     min_beds: int
@@ -44,6 +56,8 @@ class OutputConfig(BaseModel):
 
 
 class InvestmentConfig(BaseModel):
+    fetch: FetchConfig = Field(default_factory=FetchConfig)
+    enrich: EnrichConfig = Field(default_factory=EnrichConfig)
     criteria: ScreeningCriteria
     financial_assumptions: FinancialAssumptions
     output: OutputConfig

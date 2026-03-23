@@ -59,7 +59,7 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
 
         # ── Stage 1: Fetch ────────────────────────────────────────────────────
         progress.update(task, description="[1/5] Fetching listings...")
-        raw = fetch_listings(market)
+        raw = fetch_listings(market, config.fetch)
         run_log["listings_fetched"] = len(raw)
         console.log(f"[dim]Fetched {len(raw)} listings[/dim]")
 
@@ -83,7 +83,7 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
 
         # ── Stage 3: Enrich ───────────────────────────────────────────────────
         progress.update(task, description=f"[3/5] Enriching {len(screened)} listings...")
-        enrich_results = await enrich_all(screened)
+        enrich_results = await enrich_all(screened, config.enrich)
         enrichment_errors = [r.error for r in enrich_results if r.error]
         run_log["enrichment_failures"] = enrichment_errors
         if enrichment_errors:
