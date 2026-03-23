@@ -8,10 +8,11 @@ fetch → screen → enrich → analyze → flag risks → rank + narrate
 
 ## Features
 
-- **Screening** — filters by price, beds, and days on market
+- **Screening** — filters by price, beds, days on market, and optional HOA fee cap
 - **Financial analysis** — cap rate, cash-on-cash return, monthly cash flow, NOI
 - **Neighborhood enrichment** — Walk Score (via API or fixture data)
 - **Risk flagging** — FEMA flood zones, DOM outliers
+- **Rich listing data** — bedrooms, bathrooms, sqft, lot size, home type, school district, HOA
 - **Claude-powered narration** — ranked shortlist with a written investment thesis per deal
 - **Mock mode** — runs the full pipeline without an API key for development/testing
 
@@ -78,7 +79,7 @@ financial_assumptions:
 
 output:
   max_shortlist: 5
-  market: "Austin, TX"
+  market: "Seattle, WA"
   use_mock_ranker: false  # set true to skip Claude API call
 ```
 
@@ -118,7 +119,7 @@ pytest
 ├── pipeline.py          # main orchestrator
 ├── scout.py             # CLI entry point
 ├── fixtures/
-│   └── listings.json    # sample Austin TX listings (20 properties)
+│   └── listings.json    # sample Seattle WA listings (20 properties)
 ├── tools/
 │   ├── models.py        # Pydantic models for all pipeline I/O
 │   ├── fetch.py         # listing loader

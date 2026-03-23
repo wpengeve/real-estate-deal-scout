@@ -22,6 +22,7 @@ class ScreeningCriteria(BaseModel):
     target_cap_rate: float = 0.05
     walkscore_min: int = 50
     dom_outlier_multiplier: float = 2.0
+    max_hoa_fee: float | None = None  # monthly; None = no filter
 
 
 class FinancialAssumptions(BaseModel):
@@ -57,6 +58,10 @@ class RawListing(BaseModel):
     beds: int | None = None
     baths: float | None = None
     sqft: int | None = None
+    lot_sqft: int | None = None               # lot/land size in sqft (None for condos)
+    home_type: str | None = None              # "Single Family", "Condo", "Townhouse", "Multi-Family"
+    school_district: str | None = None        # school district / feeder zone
+    hoa_fee: float | None = None              # monthly HOA fee; None = no HOA
     days_on_market: int | None = None
     zestimate: float | None = None
     estimated_monthly_rent: float | None = None
@@ -132,6 +137,12 @@ class DealNarrative(BaseModel):
     address: str
     price: float
     beds: int | None = None
+    baths: float | None = None
+    sqft: int | None = None
+    lot_sqft: int | None = None
+    home_type: str | None = None
+    school_district: str | None = None
+    hoa_fee: float | None = None
     days_on_market: int | None = None
     cap_rate: float | None = None
     coc_return: float | None = None

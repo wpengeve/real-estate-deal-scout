@@ -2,7 +2,7 @@
 Real Estate Deal Scout — CLI entry point.
 
 Usage:
-    scout [--market "Austin, TX"] [--config config.yaml] [--max-shortlist 5]
+    scout [--market "Seattle, WA"] [--config config.yaml] [--max-shortlist 5]
     scout --from-analyzed outputs/20260320-120000_analyzed.json
 """
 import argparse
@@ -55,6 +55,7 @@ def display_shortlist(shortlist: Shortlist) -> None:
         # Build deal card header
         price_str = f"${deal.price:,.0f}"
         beds_str = f"{deal.beds}bd" if deal.beds else "?bd"
+        baths_str = f"{deal.baths}ba" if deal.baths else "?ba"
         dom_str = f"{deal.days_on_market} DOM" if deal.days_on_market is not None else "? DOM"
 
         risk_color = {"LOW": "green", "MEDIUM": "yellow", "HIGH": "red"}.get(
@@ -62,7 +63,10 @@ def display_shortlist(shortlist: Shortlist) -> None:
         )
 
         title = f"[bold cyan]#{deal.rank}[/bold cyan]  {deal.address}"
-        subtitle = f"{price_str}  ·  {beds_str}  ·  {dom_str}  ·  Risk: [{risk_color}]{deal.risk_level}[/{risk_color}]"
+        subtitle = (
+            f"{price_str}  ·  {beds_str}/{baths_str}  ·  {dom_str}  ·  "
+            f"Risk: [{risk_color}]{deal.risk_level}[/{risk_color}]"
+        )
 
         # Build metrics table
         table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
@@ -79,6 +83,17 @@ def display_shortlist(shortlist: Shortlist) -> None:
                 "Monthly Cash Flow",
                 f"[{color}][bold]{deal.monthly_cashflow:+,.0f}/mo[/bold][/{color}]",
             )
+        if deal.sqft is not None:
+            sqft_str = f"{deal.sqft:,} sqft"
+            if deal.lot_sqft is not None:
+                sqft_str += f"  (lot: {deal.lot_sqft:,} sqft)"
+            table.add_row("Size", sqft_str)
+        if deal.home_type:
+            table.add_row("Type", deal.home_type)
+        if deal.school_district:
+            table.add_row("School District", deal.school_district)
+        if deal.hoa_fee is not None:
+            table.add_row("HOA", f"${deal.hoa_fee:,.0f}/mo")
         if deal.walk_score is not None:
             table.add_row("Walk Score", str(deal.walk_score))
         if deal.flood_zone:
@@ -108,7 +123,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Real Estate Deal Scout — find investment properties with AI"
     )
-    parser.add_argument("--market", help="Target market, e.g. 'Austin, TX'")
+    parser.add_argument("--market", help="Target market, e.g. 'Seattle, WA'")
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     parser.add_argument("--max-shortlist", type=int, help="Max properties in shortlist")
     parser.add_argument(

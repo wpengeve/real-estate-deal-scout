@@ -14,7 +14,7 @@ CRITERIA = ScreeningCriteria(max_price=500_000, min_beds=3, max_dom=30)
 def _listing(**kwargs) -> RawListing:
     defaults = dict(
         zpid="test-1",
-        address="123 Main St, Austin TX",
+        address="123 Main St, Seattle WA",
         price=400_000,
         beds=3,
         days_on_market=15,

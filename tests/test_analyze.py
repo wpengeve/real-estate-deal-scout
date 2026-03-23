@@ -66,7 +66,7 @@ def test_analyze_cap_rate():
     result = analyze_financials(_enrich(price=400_000, rent=2500, property_tax=4800), ASSUMPTIONS)
     assert result.financials.success is True
     assert result.financials.cap_rate is not None
-    # Sanity-check the formula direction (typical range for Austin market inputs)
+    # Sanity-check the formula direction (typical range for Seattle market inputs)
     assert 0.02 < result.financials.cap_rate < 0.09
 
 

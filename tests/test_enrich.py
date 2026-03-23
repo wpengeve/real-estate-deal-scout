@@ -20,7 +20,7 @@ _WALKSCORE_URL = re.compile(r"https://api\.walkscore\.com")
 def _listing(walk_score=None, lat=30.25, lon=-97.75, **kwargs) -> RawListing:
     return RawListing(
         zpid="test-1",
-        address="123 Main St, Austin TX 78701",
+        address="123 Main St, Seattle WA 98101",
         price=400_000,
         beds=3,
         days_on_market=15,

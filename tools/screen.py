@@ -27,6 +27,13 @@ def screen_listing(listing: RawListing, criteria: ScreeningCriteria) -> ScreenRe
     if listing.days_on_market > criteria.max_dom:
         return ScreenResult(listing=listing, passed=False, reason="dom_exceeded")
 
+    if (
+        criteria.max_hoa_fee is not None
+        and listing.hoa_fee is not None
+        and listing.hoa_fee > criteria.max_hoa_fee
+    ):
+        return ScreenResult(listing=listing, passed=False, reason="hoa_too_high")
+
     return ScreenResult(listing=listing, passed=True)
 
 

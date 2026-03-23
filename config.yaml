@@ -8,6 +8,7 @@ criteria:
   target_cap_rate: 0.05      # 5% minimum cap rate for shortlist ranking
   walkscore_min: 50          # minimum Walk Score (0-100)
   dom_outlier_multiplier: 2.0  # flag if DOM > 2x market average
+  max_hoa_fee: null          # monthly HOA fee limit in USD (null = no filter)
 
 financial_assumptions:
   down_payment_pct: 0.25     # 25% down payment
@@ -22,5 +23,5 @@ financial_assumptions:
 
 output:
   max_shortlist: 5           # maximum properties in ranked shortlist
-  market: "Austin, TX"       # target market (overridable via --market CLI flag)
+  market: "Seattle, WA"      # target market (overridable via --market CLI flag)
   use_mock_ranker: false     # set true to skip Claude API call (uses heuristic ranking)

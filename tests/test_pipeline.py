@@ -24,17 +24,17 @@ from tools.models import (
 CONFIG = InvestmentConfig(
     criteria=ScreeningCriteria(max_price=500_000, min_beds=3, max_dom=30),
     financial_assumptions=FinancialAssumptions(),
-    output=OutputConfig(market="Austin, TX", max_shortlist=5),
+    output=OutputConfig(market="Seattle, WA", max_shortlist=5),
 )
 
 _FIXTURE_PATH = Path(__file__).parent.parent / "fixtures" / "listings.json"
 
 _MOCK_SHORTLIST = Shortlist(
-    market="Austin, TX",
+    market="Seattle, WA",
     deals=[
         DealNarrative(
             rank=1,
-            address="9012 Airport Blvd, Austin, TX 78729",
+            address="4521 Rainier Ave S, Seattle, WA 98118",
             price=285_000,
             beds=3,
             days_on_market=8,
@@ -80,7 +80,7 @@ async def test_pipeline_fixture_to_shortlist(tmp_path):
         )
         mock_client_cls.return_value = mock_client
 
-        shortlist = await run("Austin, TX", CONFIG)
+        shortlist = await run("Seattle, WA", CONFIG)
 
     assert len(shortlist.deals) >= 1
     deal = shortlist.deals[0]
@@ -103,14 +103,14 @@ async def test_pipeline_zero_screened_exits_gracefully(tmp_path):
     tight_config = InvestmentConfig(
         criteria=ScreeningCriteria(max_price=1, min_beds=10, max_dom=0),
         financial_assumptions=FinancialAssumptions(),
-        output=OutputConfig(market="Austin, TX", max_shortlist=5),
+        output=OutputConfig(market="Seattle, WA", max_shortlist=5),
     )
 
     with patch("pipeline.anthropic.AsyncAnthropic") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client_cls.return_value = mock_client
 
-        shortlist = await run("Austin, TX", tight_config)
+        shortlist = await run("Seattle, WA", tight_config)
 
     assert shortlist.deals == []
     assert "No listings matched" in shortlist.run_summary
@@ -137,7 +137,7 @@ async def test_pipeline_all_enrichment_fails_continues(tmp_path):
         )
         mock_client_cls.return_value = mock_client
 
-        shortlist = await run("Austin, TX", CONFIG)
+        shortlist = await run("Seattle, WA", CONFIG)
 
     assert len(shortlist.deals) >= 1
 
@@ -164,7 +164,7 @@ async def test_pipeline_claude_error_saves_analyzed_data(tmp_path, monkeypatch):
         mock_client_cls.return_value = mock_client
 
         with pytest.raises(SystemExit) as exc_info:
-            await run("Austin, TX", CONFIG)
+            await run("Seattle, WA", CONFIG)
 
     assert exc_info.value.code == 1
 
@@ -192,13 +192,13 @@ async def test_pipeline_writes_output_json(tmp_path, monkeypatch):
         )
         mock_client_cls.return_value = mock_client
 
-        await run("Austin, TX", CONFIG)
+        await run("Seattle, WA", CONFIG)
 
     output_files = [f for f in tmp_path.glob("*.json") if "analyzed" not in f.name]
     assert len(output_files) == 1
 
     data = json.loads(output_files[0].read_text())
-    assert data["market"] == "Austin, TX"
+    assert data["market"] == "Seattle, WA"
     assert "deals" in data
 
 
@@ -228,7 +228,7 @@ async def test_pipeline_all_none_fields_no_crash(tmp_path, monkeypatch):
         mock_client = AsyncMock()
         mock_client_cls.return_value = mock_client
 
-        shortlist = await run("Austin, TX", CONFIG)
+        shortlist = await run("Seattle, WA", CONFIG)
 
     assert shortlist.deals == []
     mock_client.messages.create.assert_not_called()
