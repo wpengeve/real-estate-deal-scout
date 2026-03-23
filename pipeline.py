@@ -24,6 +24,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from tools.analyze import analyze_all
 from tools.enrich import enrich_all
 from tools.fetch import fetch_listings
+from tools.mock_ranker import mock_rank_and_narrate
 from tools.models import FlaggedListing, InvestmentConfig, Shortlist
 from tools.risks import flag_all
 from tools.screen import screen_all
@@ -112,15 +113,18 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
         json.dumps([f.model_dump() for f in flagged], indent=2, default=str)
     )
 
-    # ── Claude: rank + narrate ────────────────────────────────────────────────
-    console.print("[dim]Ranking with Claude...[/dim]")
-    try:
-        shortlist = await _claude_rank_and_narrate(flagged, config)
-    except anthropic.APIError as e:
-        console.print(f"\n[red]Claude ranking failed: {e}[/red]")
-        console.print(f"  Analyzed data saved to: [bold]{analyzed_path}[/bold]")
-        console.print("  Re-run with [bold]--from-analyzed[/bold] to retry narration only.")
-        raise SystemExit(1) from e
+    # ── Claude: rank + narrate (or mock) ─────────────────────────────────────
+    if config.output.use_mock_ranker:
+        shortlist = mock_rank_and_narrate(flagged, config)
+    else:
+        console.print("[dim]Ranking with Claude...[/dim]")
+        try:
+            shortlist = await _claude_rank_and_narrate(flagged, config)
+        except anthropic.APIError as e:
+            console.print(f"\n[red]Claude ranking failed: {e}[/red]")
+            console.print(f"  Analyzed data saved to: [bold]{analyzed_path}[/bold]")
+            console.print("  Re-run with [bold]--from-analyzed[/bold] to retry narration only.")
+            raise SystemExit(1) from e
 
     # ── Write output ──────────────────────────────────────────────────────────
     safe_market = market.replace(", ", "_").replace(" ", "_").lower()

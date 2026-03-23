@@ -39,6 +39,7 @@ class FinancialAssumptions(BaseModel):
 class OutputConfig(BaseModel):
     max_shortlist: int = 5
     market: str
+    use_mock_ranker: bool = False
 
 
 class InvestmentConfig(BaseModel):

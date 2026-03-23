@@ -23,3 +23,4 @@ financial_assumptions:
 output:
   max_shortlist: 5           # maximum properties in ranked shortlist
   market: "Austin, TX"       # target market (overridable via --market CLI flag)
+  use_mock_ranker: false     # set true to skip Claude API call (uses heuristic ranking)
