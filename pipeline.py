@@ -26,6 +26,8 @@ from tools.enrich import enrich_all
 from tools.fetch import fetch_listings
 from tools.mock_ranker import mock_rank_and_narrate
 from tools.models import FlaggedListing, InvestmentConfig, Shortlist
+from tools.ollama_ranker import ollama_rank_and_narrate
+from tools.report import generate_report
 from tools.risks import flag_all
 from tools.screen import screen_all
 
@@ -98,6 +100,24 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
             f"[dim]Financial analysis: {len(successful)}/{len(analyzed)} succeeded[/dim]"
         )
 
+        # Post-analysis cap rate filter (optional — set min_cap_rate in config.yaml)
+        if config.criteria.min_cap_rate is not None:
+            before = len(analyzed)
+            analyzed = [
+                a for a in analyzed
+                if a.financials.cap_rate is not None
+                and a.financials.cap_rate >= config.criteria.min_cap_rate
+            ]
+            dropped = before - len(analyzed)
+            if dropped:
+                console.log(f"[dim]Cap rate filter: {dropped} below {config.criteria.min_cap_rate:.1%} removed[/dim]")
+
+        if not analyzed:
+            console.print("\n[yellow]No listings met the minimum cap rate.[/yellow]")
+            console.print("  Tip: lower [bold]min_cap_rate[/bold] in config.yaml or set it to null")
+            _write_run_log(run_log)
+            return Shortlist(market=market, deals=[], run_summary="No listings met the minimum cap rate.")
+
         # ── Stage 5: Flag risks ───────────────────────────────────────────────
         progress.update(task, description="[5/5] Flagging risks...")
         flagged = flag_all(analyzed, config.criteria)
@@ -113,10 +133,18 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
         json.dumps([f.model_dump() for f in flagged], indent=2, default=str)
     )
 
-    # ── Claude: rank + narrate (or mock) ─────────────────────────────────────
-    if config.output.use_mock_ranker:
-        shortlist = mock_rank_and_narrate(flagged, config)
-    else:
+    # ── Rank + narrate ────────────────────────────────────────────────────────
+    ranker = config.output.ranker
+    if ranker == "ollama":
+        console.print(
+            f"[dim]Ranking with Ollama ({config.output.ollama_model})...[/dim]"
+        )
+        try:
+            shortlist = ollama_rank_and_narrate(flagged, config)
+        except RuntimeError as e:
+            console.print(f"\n[red]Ollama ranking failed: {e}[/red]")
+            raise SystemExit(1) from e
+    elif ranker == "claude":
         console.print("[dim]Ranking with Claude...[/dim]")
         try:
             shortlist = await _claude_rank_and_narrate(flagged, config)
@@ -125,15 +153,74 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
             console.print(f"  Analyzed data saved to: [bold]{analyzed_path}[/bold]")
             console.print("  Re-run with [bold]--from-analyzed[/bold] to retry narration only.")
             raise SystemExit(1) from e
+    else:
+        shortlist = mock_rank_and_narrate(flagged, config)
 
     # ── Write output ──────────────────────────────────────────────────────────
     safe_market = market.replace(", ", "_").replace(" ", "_").lower()
     output_path = _OUTPUTS_DIR / f"{run_id}_{safe_market}.json"
     output_path.write_text(shortlist.model_dump_json(indent=2))
+    report_path = generate_report(shortlist, output_path.with_suffix(".html"), config.financial_assumptions)
     console.print(f"\n[dim]Shortlist saved to {output_path}[/dim]")
+    console.print(f"[dim]HTML report: {report_path}[/dim]")
 
     run_log["shortlist_size"] = len(shortlist.deals)
     _write_run_log(run_log)
+
+    return shortlist
+
+
+async def run_from_analyzed(analyzed_path: Path, config: InvestmentConfig) -> Shortlist:
+    """
+    Skip the pipeline stages and re-run only the ranking step on a previously
+    saved *_analyzed.json file. Useful when Ollama/Claude failed after the slow
+    enrichment + analysis phase.
+
+    Raises:
+        FileNotFoundError: analyzed file is missing
+        ValueError:        analyzed file is invalid JSON or wrong shape
+        SystemExit(1):     ranker failed
+    """
+    _OUTPUTS_DIR.mkdir(exist_ok=True)
+
+    if not analyzed_path.exists():
+        raise FileNotFoundError(f"Analyzed file not found: {analyzed_path}")
+
+    try:
+        raw = json.loads(analyzed_path.read_text())
+        if not isinstance(raw, list):
+            raise ValueError("Expected a JSON array")
+        flagged = [FlaggedListing.model_validate(item) for item in raw]
+    except (json.JSONDecodeError, Exception) as e:
+        raise ValueError(f"Could not load analyzed file: {e}") from e
+
+    console.print(f"[dim]Loaded {len(flagged)} analyzed listings from {analyzed_path}[/dim]")
+
+    ranker = config.output.ranker
+    if ranker == "ollama":
+        console.print(f"[dim]Ranking with Ollama ({config.output.ollama_model})...[/dim]")
+        try:
+            shortlist = ollama_rank_and_narrate(flagged, config)
+        except RuntimeError as e:
+            console.print(f"\n[red]Ollama ranking failed: {e}[/red]")
+            raise SystemExit(1) from e
+    elif ranker == "claude":
+        console.print("[dim]Ranking with Claude...[/dim]")
+        try:
+            shortlist = await _claude_rank_and_narrate(flagged, config)
+        except anthropic.APIError as e:
+            console.print(f"\n[red]Claude ranking failed: {e}[/red]")
+            raise SystemExit(1) from e
+    else:
+        shortlist = mock_rank_and_narrate(flagged, config)
+
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    safe_market = config.output.market.replace(", ", "_").replace(" ", "_").lower()
+    output_path = _OUTPUTS_DIR / f"{run_id}_{safe_market}.json"
+    output_path.write_text(shortlist.model_dump_json(indent=2))
+    report_path = generate_report(shortlist, output_path.with_suffix(".html"), config.financial_assumptions)
+    console.print(f"\n[dim]Shortlist saved to {output_path}[/dim]")
+    console.print(f"[dim]HTML report: {report_path}[/dim]")
 
     return shortlist
 
@@ -221,7 +308,27 @@ Properties with HIGH risk should be noted prominently in the narrative."""
 
     shortlist_data = response.content[0].input
     shortlist_data["market"] = config.output.market
-    return Shortlist.model_validate(shortlist_data)
+    shortlist = Shortlist.model_validate(shortlist_data)
+
+    # Merge pipeline-derived fields that Claude may not have populated.
+    # Financial/risk fields must come from the pipeline, not the LLM.
+    flagged_by_address = {f.listing.address.strip().lower(): f for f in flagged}
+    for deal in shortlist.deals:
+        f = flagged_by_address.get(deal.address.strip().lower())
+        if f is None:
+            continue
+        deal.noi_annual = f.financials.noi_annual
+        deal.monthly_mortgage = f.financials.monthly_mortgage
+        deal.estimated_monthly_rent = f.estimated_monthly_rent
+        deal.tax_assessed_land = f.listing.tax_assessed_land
+        deal.tax_assessed_improvement = f.listing.tax_assessed_improvement
+        deal.appreciation = f.appreciation
+        deal.latitude = f.listing.latitude
+        deal.longitude = f.listing.longitude
+        deal.listing_url = f.listing.listing_url
+        deal.year_built = f.listing.year_built
+
+    return shortlist
 
 
 def _write_run_log(entry: dict) -> None:

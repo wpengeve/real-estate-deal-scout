@@ -111,10 +111,23 @@ def mock_rank_and_narrate(
                 cap_rate=f.financials.cap_rate,
                 coc_return=f.financials.coc_return,
                 monthly_cashflow=f.financials.monthly_cashflow,
+                noi_annual=f.financials.noi_annual,
+                monthly_mortgage=f.financials.monthly_mortgage,
+                estimated_monthly_rent=f.estimated_monthly_rent,
                 walk_score=f.walk_score,
                 flood_zone=f.risks.flood_zone,
+                tax_assessed_value=f.listing.tax_assessed_value,
+                tax_assessed_land=f.listing.tax_assessed_land,
+                tax_assessed_improvement=f.listing.tax_assessed_improvement,
+                zoning=f.listing.zoning,
                 risk_level=f.risks.overall_risk.value,
                 narrative=_narrative(rank, f, config),
+                zoning_potential=f.zoning_potential,
+                appreciation=f.appreciation,
+                latitude=f.listing.latitude,
+                longitude=f.listing.longitude,
+                listing_url=f.listing.listing_url,
+                year_built=f.listing.year_built,
             )
         )
 

@@ -13,9 +13,11 @@ FEMA flood zone reference:
   Minimal    (Zone C/X):    outside 500-year floodplain
 """
 import logging
+import time
 
 import httpx
 
+from tools.appreciation import compute_appreciation_signals
 from tools.models import (
     AnalyzedListing,
     FlaggedListing,
@@ -24,14 +26,17 @@ from tools.models import (
     RiskResult,
     ScreeningCriteria,
 )
+from tools.zoning_potential import assess as assess_zoning
 
 logger = logging.getLogger(__name__)
 
 _HIGH_RISK_ZONES = {"A", "AE", "AH", "AO", "AR", "A99", "V", "VE"}
 _FEMA_URL = (
-    "https://hazards.fema.gov/gis/nfhl/rest/services/public/NFHL/MapServer/28/query"
+    "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query"
 )
 _FEMA_TIMEOUT = 8.0
+_FEMA_RETRIES = 3
+_FEMA_RETRY_DELAY = 1.5  # seconds between retries
 
 
 def flag_risks(
@@ -89,6 +94,17 @@ def flag_risks(
     else:
         overall = RiskLevel.LOW
 
+    zoning_potential = assess_zoning(
+        zoning=analyzed.listing.zoning,
+        lot_sqft=analyzed.listing.lot_sqft,
+        address=analyzed.listing.address,
+    )
+
+    appreciation = compute_appreciation_signals(
+        listing=analyzed.listing,
+        estimated_monthly_rent=analyzed.estimated_monthly_rent,
+    )
+
     return FlaggedListing(
         listing=analyzed.listing,
         walk_score=analyzed.walk_score,
@@ -99,6 +115,8 @@ def flag_risks(
             flags=flags,
             overall_risk=overall,
         ),
+        zoning_potential=zoning_potential,
+        appreciation=appreciation,
     )
 
 
@@ -138,15 +156,27 @@ def _lookup_fema_sync(lat: float | None, lon: float | None) -> str | None:
         "f": "json",
     }
 
-    try:
-        with httpx.Client(timeout=_FEMA_TIMEOUT) as client:
-            response = client.get(_FEMA_URL, params=params)
-            response.raise_for_status()
-            data = response.json()
-            features = data.get("features", [])
-            if features:
-                return features[0].get("attributes", {}).get("FLD_ZONE")
-    except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as e:
-        logger.warning("FEMA lookup failed for (%s, %s): %s", lat, lon, e)
+    for attempt in range(1, _FEMA_RETRIES + 1):
+        try:
+            with httpx.Client(timeout=_FEMA_TIMEOUT) as client:
+                response = client.get(_FEMA_URL, params=params)
+                response.raise_for_status()
+                features = response.json().get("features", [])
+                if features:
+                    return features[0].get("attributes", {}).get("FLD_ZONE")
+                return None  # valid response, no flood zone data for this point
+
+        except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as e:
+            if attempt < _FEMA_RETRIES:
+                logger.debug(
+                    "FEMA lookup attempt %d/%d failed for (%s, %s): %s — retrying",
+                    attempt, _FEMA_RETRIES, lat, lon, e,
+                )
+                time.sleep(_FEMA_RETRY_DELAY * attempt)
+            else:
+                logger.warning(
+                    "FEMA lookup failed for (%s, %s) after %d attempts: %s",
+                    lat, lon, _FEMA_RETRIES, e,
+                )
 
     return None

@@ -8,22 +8,56 @@ Usage:
 import argparse
 import asyncio
 import logging
+import re
 import sys
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
+
+# load_dotenv() must run before local imports so that module-level os.getenv()
+# calls in enrich.py, crosswalk.py etc. pick up keys from .env
+load_dotenv()
+
 from pydantic import ValidationError
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
-from pipeline import run
+from pipeline import run, run_from_analyzed
 from tools.models import InvestmentConfig, Shortlist
 
 console = Console()
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+# Seattle/KC zoning prefix → human-readable description.
+# KC codes are granular (NR1/NR2/NR3) and may carry MHA suffixes like "(M)" or "(M1)".
+# _format_zoning() strips the suffix and matches by prefix.
+_ZONING_DESCRIPTIONS = {
+    "NR":  "Neighborhood Residential",   # replaced SF zoning; 3–6 units/lot
+    "LR":  "Lowrise Multifamily",        # townhouses, small apartments (LR1/LR2/LR3)
+    "MR":  "Midrise",                    # mid-density apartments
+    "HR":  "Highrise",                   # high-density towers
+    "NC":  "Neighborhood Commercial",    # mixed-use, ground-floor retail
+    "C1":  "Neighborhood Commercial",
+    "C2":  "General Commercial",
+    "IC":  "Industrial/Commercial",
+    "IG":  "Industrial General",
+}
+
+
+def _format_zoning(code: str) -> str:
+    """Format a KC zoning code as 'CODE — Description'.
+
+    Strips MHA affordability suffixes (e.g. ' (M)', ' (M1)', ' (M2)') before lookup.
+    Matches by prefix so NR1/NR2/NR3 all resolve to 'Neighborhood Residential'.
+    """
+    base = re.sub(r"\s*\(M\d?\)\s*$", "", code.strip())
+    for prefix, desc in _ZONING_DESCRIPTIONS.items():
+        if base.upper().startswith(prefix):
+            return f"{code} — {desc}"
+    return code  # unknown code: show as-is
 
 
 def load_config(config_path: str, overrides: dict) -> InvestmentConfig:
@@ -98,9 +132,10 @@ def display_shortlist(shortlist: Shortlist) -> None:
             table.add_row("Walk Score", str(deal.walk_score))
         if deal.flood_zone:
             table.add_row("Flood Zone", deal.flood_zone)
-
-        content = f"{subtitle}\n"
-        content_renderable = [table, f"\n[italic]{deal.narrative}[/italic]"]
+        if deal.zoning:
+            table.add_row("Zoning", _format_zoning(deal.zoning))
+        if deal.tax_assessed_value is not None:
+            table.add_row("Tax Assessed Value", f"${deal.tax_assessed_value:,.0f}")
 
         console.print(Panel(
             "\n".join([subtitle, "", deal.narrative]),
@@ -112,14 +147,37 @@ def display_shortlist(shortlist: Shortlist) -> None:
 
         # Print metrics below the panel
         console.print(table)
+
+        # Development potential section
+        zp = deal.zoning_potential
+        if zp and zp.development_score is not None:
+            score = zp.development_score
+            stars = "★" * score + "☆" * (5 - score)
+            score_color = ["dim", "dim", "yellow", "yellow", "green", "green"][score]
+            badges = []
+            if zp.zoned_units and zp.zoned_units > 1:
+                badges.append(f"[blue]Zoned {zp.zoned_units} units[/blue]")
+            if zp.dadu_eligible:
+                badges.append("[green]DADU eligible[/green]")
+            if zp.adu_eligible and not zp.dadu_eligible:
+                badges.append("[blue]ADU eligible[/blue]")
+            if zp.subdivision_eligible:
+                badges.append("[magenta]Subdivision possible[/magenta]")
+
+            badge_str = "  ·  ".join(badges) if badges else ""
+            console.print(
+                f"  [bold]Development Potential[/bold]  [{score_color}]{stars}[/{score_color}]"
+                + (f"  {badge_str}" if badge_str else "")
+            )
+            if zp.summary:
+                console.print(f"  [dim]{zp.summary}[/dim]")
+
         console.print()
 
     console.print(f"[dim]{shortlist.run_summary}[/dim]\n")
 
 
 def main() -> None:
-    load_dotenv()
-
     parser = argparse.ArgumentParser(
         description="Real Estate Deal Scout — find investment properties with AI"
     )
@@ -133,12 +191,21 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # --from-analyzed: retry Claude narration on a previously saved file
+    # --from-analyzed: re-run ranking on a previously saved analyzed JSON file
     if args.from_analyzed:
-        console.print(f"[dim]Loading analyzed data from {args.from_analyzed}...[/dim]")
-        # Future: implement re-narration from saved analyzed JSON
-        console.print("[red]--from-analyzed not yet implemented.[/red]")
-        sys.exit(1)
+        try:
+            config = load_config(
+                args.config,
+                {"market": args.market, "max_shortlist": args.max_shortlist},
+            )
+        except (FileNotFoundError, ValidationError) as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
+        console.print(f"\n[bold]Real Estate Deal Scout[/bold] · {config.output.market}\n")
+        shortlist = asyncio.run(run_from_analyzed(Path(args.from_analyzed), config))
+        display_shortlist(shortlist)
+        return
 
     try:
         config = load_config(

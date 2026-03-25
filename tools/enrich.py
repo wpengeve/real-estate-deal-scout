@@ -14,6 +14,8 @@ import os
 
 import httpx
 
+from tools.assessor import lookup_parcel
+from tools.crosswalk import zip_to_county
 from tools.models import EnrichConfig, EnrichResult, RawListing
 
 logger = logging.getLogger(__name__)
@@ -32,14 +34,40 @@ _HUD_BASE_URL = "https://www.huduser.gov/hudapi/public/fmr"
 _HUD_TIMEOUT = 10.0
 
 # In-memory caches — populated once per process run
-_hud_entity_id: str | None = None          # county entity ID (looked up once)
-_hud_fmr_data: dict[str, int] | None = None  # bedroom → monthly rent
+_hud_entity_id: str | None = None                      # county fips_code (looked up once)
+_hud_fmr_data: dict[str, dict[str, int]] | None = None # zip_code → {bedroom: rent}
+                                                        # key "MSA level" = county-wide fallback
+
+# Lazy lock — created on first use (after the event loop is running)
+_hud_init_lock: asyncio.Lock | None = None
+
+
+def _get_hud_lock() -> asyncio.Lock:
+    global _hud_init_lock
+    if _hud_init_lock is None:
+        _hud_init_lock = asyncio.Lock()
+    return _hud_init_lock
 
 _HUD_BED_KEYS = {
     1: "One-Bedroom",
     2: "Two-Bedroom",
     3: "Three-Bedroom",
     4: "Four-Bedroom",
+}
+
+# State FIPS → postal abbreviation (needed because HUD listCounties uses abbreviations)
+_FIPS_TO_STATE_ABBR: dict[str, str] = {
+    "01": "AL", "02": "AK", "04": "AZ", "05": "AR", "06": "CA",
+    "08": "CO", "09": "CT", "10": "DE", "11": "DC", "12": "FL",
+    "13": "GA", "15": "HI", "16": "ID", "17": "IL", "18": "IN",
+    "19": "IA", "20": "KS", "21": "KY", "22": "LA", "23": "ME",
+    "24": "MD", "25": "MA", "26": "MI", "27": "MN", "28": "MS",
+    "29": "MO", "30": "MT", "31": "NE", "32": "NV", "33": "NH",
+    "34": "NJ", "35": "NM", "36": "NY", "37": "NC", "38": "ND",
+    "39": "OH", "40": "OK", "41": "OR", "42": "PA", "44": "RI",
+    "45": "SC", "46": "SD", "47": "TN", "48": "TX", "49": "UT",
+    "50": "VT", "51": "VA", "53": "WA", "54": "WV", "55": "WI",
+    "56": "WY",
 }
 
 
@@ -59,14 +87,27 @@ async def enrich_neighborhood(
 
     # Use rent already on the listing if present; otherwise try HUD FMR
     rent = listing.estimated_monthly_rent
-    if rent is None and enrich_config and _HUD_API_KEY and listing.beds:
-        rent = await _fetch_hud_fmr_rent(listing.beds, enrich_config)
+    if rent is None and _HUD_API_KEY and listing.beds:
+        rent = await _fetch_hud_fmr_rent(listing.beds, listing.address, enrich_config)
+
+    # Fetch KC Assessor data (tax assessed value + zoning) if not already set
+    updated_listing = listing
+    if listing.tax_assessed_value is None or listing.zoning is None:
+        parcel = await lookup_parcel(listing.address)
+        if parcel:
+            updated_listing = listing.model_copy(update={
+                k: v for k, v in parcel.items()
+                if v is not None and getattr(listing, k) is None
+            })
 
     return EnrichResult(
-        listing=listing,
+        listing=updated_listing,
         walk_score=walk_score,
         estimated_monthly_rent=rent,
     )
+
+
+_ENRICH_CONCURRENCY = 10  # max parallel per-listing API calls
 
 
 async def enrich_all(
@@ -74,15 +115,18 @@ async def enrich_all(
     enrich_config: EnrichConfig | None = None,
 ) -> list[EnrichResult]:
     """
-    Enrich all listings sequentially.
+    Enrich all listings concurrently (up to _ENRICH_CONCURRENCY at a time).
 
-    Swap to asyncio.gather when real API call volume warrants it (see TODOS.md).
+    A semaphore caps simultaneous outbound requests to avoid rate-limiting
+    Walk Score and the KC Assessor APIs. Order of results matches input order.
     """
-    results = []
-    for listing in listings:
-        result = await enrich_neighborhood(listing, enrich_config)
-        results.append(result)
-    return results
+    sem = asyncio.Semaphore(_ENRICH_CONCURRENCY)
+
+    async def _bounded(listing: RawListing) -> EnrichResult:
+        async with sem:
+            return await enrich_neighborhood(listing, enrich_config)
+
+    return list(await asyncio.gather(*(_bounded(l) for l in listings)))
 
 
 # ── Walk Score ─────────────────────────────────────────────────────────────────
@@ -134,62 +178,123 @@ async def _fetch_walk_score(listing: RawListing) -> int | None:
 
 # ── HUD Fair Market Rents ──────────────────────────────────────────────────────
 
-async def _fetch_hud_fmr_rent(beds: int, enrich_config: EnrichConfig) -> float | None:
+async def _resolve_county(
+    address: str,
+    enrich_config: EnrichConfig | None,
+) -> tuple[str | None, str | None]:
+    """
+    Return (state_fips, county_name) using config override or ZIP crosswalk.
+
+    Config takes priority; crosswalk is the fallback when both fields are None.
+    """
+    if enrich_config and enrich_config.hud_state_fips and enrich_config.hud_county_name:
+        return enrich_config.hud_state_fips, enrich_config.hud_county_name
+
+    # Auto-detect from listing ZIP — match after state abbreviation to avoid
+    # matching 5-digit house numbers (e.g. "13324 ... WA 98125" → "98125")
+    import re
+    zip_match = re.search(r",\s*[A-Z]{2}\s+(\d{5})\b", address)
+    if not zip_match:
+        logger.warning("Cannot auto-detect county: no ZIP in address '%s'", address)
+        return None, None
+
+    zip_code = zip_match.group(1)
+    result = await zip_to_county(zip_code)
+    if result is None:
+        logger.warning("ZIP crosswalk returned None for ZIP %s", zip_code)
+        return None, None
+
+    return result
+
+
+async def _fetch_hud_fmr_rent(
+    beds: int,
+    address: str,
+    enrich_config: EnrichConfig | None,
+) -> float | None:
     """
     Return the HUD Fair Market Rent (monthly) for the given bedroom count.
+
+    County is resolved in priority order:
+      1. enrich_config.hud_state_fips + hud_county_name (explicit override)
+      2. Auto-detected via USPS ZIP crosswalk from the listing address ZIP code
 
     Looks up the county entity ID once, then caches FMR data for the process lifetime.
     Returns None gracefully on any failure.
     """
     global _hud_entity_id, _hud_fmr_data
 
-    # Resolve county entity ID (one API call per process run)
-    if _hud_entity_id is None:
-        _hud_entity_id = await _resolve_hud_entity_id(
-            enrich_config.hud_state_fips,
-            enrich_config.hud_county_name,
-        )
+    # Serialize HUD initialization — prevents concurrent coroutines from making
+    # duplicate API calls when _hud_entity_id / _hud_fmr_data are not yet cached.
+    async with _get_hud_lock():
         if _hud_entity_id is None:
-            return None
+            state_fips, county_name = await _resolve_county(address, enrich_config)
+            if not state_fips or not county_name:
+                return None
+            _hud_entity_id = await _resolve_hud_entity_id(state_fips, county_name)
+            if _hud_entity_id is None:
+                return None
 
-    # Fetch FMR data for this county (one API call per process run)
-    if _hud_fmr_data is None:
-        _hud_fmr_data = await _fetch_hud_fmr_data(_hud_entity_id)
         if _hud_fmr_data is None:
-            return None
+            _hud_fmr_data = await _fetch_hud_fmr_data(_hud_entity_id)
+            if _hud_fmr_data is None:
+                return None
+
+    # Extract ZIP from address — match after state abbreviation to avoid
+    # matching 5-digit house numbers (e.g. "13324 ... WA 98125" → "98125")
+    import re as _re
+    zip_match = _re.search(r",\s*[A-Z]{2}\s+(\d{5})\b", address)
+    zip_code = zip_match.group(1) if zip_match else None
+
+    # Look up ZIP-specific rates, fall back to MSA level
+    rates = (
+        _hud_fmr_data.get(zip_code)
+        or _hud_fmr_data.get("MSA level")
+        or {}
+    )
+    if zip_code and zip_code in _hud_fmr_data:
+        logger.debug("HUD FMR: using ZIP-level rates for %s", zip_code)
+    else:
+        logger.debug("HUD FMR: ZIP %s not found, using MSA level", zip_code)
 
     # Map bedroom count → HUD key (capped at 4BR)
     beds_clamped = min(max(beds, 1), 4)
     key = _HUD_BED_KEYS.get(beds_clamped)
-    val = _hud_fmr_data.get(key) if key else None
+    val = rates.get(key) if key else None
     return float(val) if val else None
 
 
 async def _resolve_hud_entity_id(state_fips: str, county_name: str) -> str | None:
     """
-    Call HUD listCounties to find the entity ID for the target county.
+    Call HUD listCounties to find the fips_code for the target county.
 
-    state_fips: e.g. "53" for Washington
+    state_fips: e.g. "53" for Washington (converted internally to "WA")
     county_name: e.g. "King County" — matched as a case-insensitive substring
     """
+    state_abbr = _FIPS_TO_STATE_ABBR.get(state_fips)
+    if not state_abbr:
+        logger.warning("Unknown state FIPS '%s' — cannot look up HUD counties", state_fips)
+        return None
+
     try:
         async with httpx.AsyncClient(timeout=_HUD_TIMEOUT) as client:
             resp = await client.get(
-                f"{_HUD_BASE_URL}/listCounties/{state_fips}",
+                f"{_HUD_BASE_URL}/listCounties/{state_abbr}",
                 headers={"Authorization": f"Bearer {_HUD_API_KEY}"},
             )
             resp.raise_for_status()
-            counties = resp.json().get("data", [])
+            # Response is a list (not wrapped in "data")
+            counties = resp.json() if isinstance(resp.json(), list) else resp.json().get("data", [])
 
         target = county_name.lower()
         for county in counties:
-            name = (county.get("area_name") or county.get("countyname") or "").lower()
+            name = (county.get("county_name") or "").lower()
             if target in name:
-                entity_id = county.get("entityid")
-                logger.info("HUD entity ID for %s: %s", county_name, entity_id)
-                return entity_id
+                fips_code = county.get("fips_code")
+                logger.info("HUD fips_code for %s: %s", county_name, fips_code)
+                return fips_code
 
-        logger.warning("HUD county '%s' not found in state FIPS %s", county_name, state_fips)
+        logger.warning("HUD county '%s' not found in state %s", county_name, state_abbr)
         return None
 
     except Exception as e:
@@ -197,22 +302,47 @@ async def _resolve_hud_entity_id(state_fips: str, county_name: str) -> str | Non
         return None
 
 
-async def _fetch_hud_fmr_data(entity_id: str) -> dict[str, int] | None:
-    """Fetch FMR bedroom rates for a county entity ID."""
+async def _fetch_hud_fmr_data(fips_code: str) -> dict[str, dict[str, int]] | None:
+    """
+    Fetch FMR bedroom rates for a county fips_code.
+
+    Returns a dict mapping zip_code → {bedroom_label: rent}.
+    The key "MSA level" holds county-wide fallback rates.
+
+    HUD changed the basicdata format in FY2025:
+      - FY2024 and earlier: basicdata is a flat dict {bedroom_label: rent}
+        → stored as {"MSA level": basicdata}
+      - FY2025+: basicdata is a list of per-ZIP dicts keyed by "zip_code"
+        → stored as {zip_code: rates_dict, "MSA level": msa_rates_dict}
+    """
     try:
         async with httpx.AsyncClient(timeout=_HUD_TIMEOUT) as client:
             resp = await client.get(
-                f"{_HUD_BASE_URL}/data/{entity_id}",
+                f"{_HUD_BASE_URL}/data/{fips_code}",
                 headers={"Authorization": f"Bearer {_HUD_API_KEY}"},
             )
             resp.raise_for_status()
-            data = resp.json().get("data", {})
-            logger.info(
-                "HUD FMR loaded: 1BR=$%s 2BR=$%s 3BR=$%s",
-                data.get("One-Bedroom"), data.get("Two-Bedroom"), data.get("Three-Bedroom"),
-            )
-            return data
+            basicdata = resp.json().get("data", {}).get("basicdata", {})
+
+        if isinstance(basicdata, list):
+            # FY2025 small-area format — index by zip_code
+            result: dict[str, dict[str, int]] = {}
+            for row in basicdata:
+                zip_key = row.get("zip_code", "")
+                result[zip_key] = row
+            msa = result.get("MSA level", {})
+        else:
+            # FY2024 and earlier — single MSA-level dict
+            result = {"MSA level": basicdata}
+            msa = basicdata
+
+        logger.info(
+            "HUD FMR loaded: %d ZIP entries, MSA 1BR=$%s 2BR=$%s 3BR=$%s",
+            len(result),
+            msa.get("One-Bedroom"), msa.get("Two-Bedroom"), msa.get("Three-Bedroom"),
+        )
+        return result
 
     except Exception as e:
-        logger.warning("HUD FMR data fetch failed for entity %s: %s", entity_id, e)
+        logger.warning("HUD FMR data fetch failed for fips_code %s: %s", fips_code, e)
         return None

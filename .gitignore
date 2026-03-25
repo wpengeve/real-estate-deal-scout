@@ -2,6 +2,9 @@
 .env
 .env.local
 
+# Personal progress log (local only, never committed)
+PROGRESS.md
+
 # Python
 __pycache__/
 *.py[cod]
@@ -19,6 +22,12 @@ venv/
 
 # Pipeline outputs (local only)
 outputs/
+
+# Downloaded listing CSVs (real data, not for committing)
+data/*.csv
+
+# Claude Code local settings
+.claude/
 
 # IDE
 .idea/

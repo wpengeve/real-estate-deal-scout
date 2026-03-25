@@ -119,3 +119,34 @@ def test_screen_all_none_pass():
     passed, filtered = screen_all(listings, CRITERIA)
     assert passed == []
     assert len(filtered) == 1
+
+
+# ── preferred_home_types ───────────────────────────────────────────────────────
+
+def test_screen_passes_when_home_type_in_preferred():
+    criteria = ScreeningCriteria(max_price=500_000, min_beds=3, max_dom=30,
+                                 preferred_home_types=["Single Family"])
+    result = screen_listing(_listing(home_type="Single Family"), criteria)
+    assert result.passed is True
+
+
+def test_screen_filters_home_type_excluded():
+    criteria = ScreeningCriteria(max_price=500_000, min_beds=3, max_dom=30,
+                                 preferred_home_types=["Single Family"])
+    result = screen_listing(_listing(home_type="Condo"), criteria)
+    assert result.passed is False
+    assert result.reason == "home_type_excluded"
+
+
+def test_screen_passes_home_type_none_when_preferred_set():
+    """Unknown home_type (None) passes through — we don't filter what we can't measure."""
+    criteria = ScreeningCriteria(max_price=500_000, min_beds=3, max_dom=30,
+                                 preferred_home_types=["Single Family"])
+    result = screen_listing(_listing(home_type=None), criteria)
+    assert result.passed is True
+
+
+def test_screen_passes_when_preferred_home_types_not_set():
+    """preferred_home_types=None means no filter — all home types pass."""
+    result = screen_listing(_listing(home_type="Condo"), CRITERIA)
+    assert result.passed is True

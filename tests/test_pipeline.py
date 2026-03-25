@@ -156,6 +156,12 @@ async def test_pipeline_claude_error_saves_analyzed_data(tmp_path, monkeypatch):
     # Redirect outputs to tmp_path for this test
     monkeypatch.setattr("pipeline._OUTPUTS_DIR", tmp_path)
 
+    claude_config = InvestmentConfig(
+        criteria=CONFIG.criteria,
+        financial_assumptions=CONFIG.financial_assumptions,
+        output=OutputConfig(market="Seattle, WA", max_shortlist=5, ranker="claude"),
+    )
+
     with patch("pipeline.anthropic.AsyncAnthropic") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.messages.create = AsyncMock(
@@ -164,7 +170,7 @@ async def test_pipeline_claude_error_saves_analyzed_data(tmp_path, monkeypatch):
         mock_client_cls.return_value = mock_client
 
         with pytest.raises(SystemExit) as exc_info:
-            await run("Seattle, WA", CONFIG)
+            await run("Seattle, WA", claude_config)
 
     assert exc_info.value.code == 1
 

@@ -2,30 +2,39 @@
 # All fields are required unless marked with a default comment.
 
 fetch:
-  data_source: fixtures        # "fixtures" or "redfin"
-  redfin_region_id: 118        # King County, WA
-  redfin_region_type: 5        # 5=county, 6=city
+  data_source: csv             # "fixtures" | "csv" | "redfin"
+  csv_path: data/redfin.csv    # single CSV — used when csv_paths is not set
+  # csv_paths:                 # combine multiple CSVs (merged + deduplicated by address)
+  #   - data/seattle_sfh.csv
+  #   - data/seattle_multifamily.csv
+  #   - data/tacoma.csv
+  redfin_region_id: 16904      # only used when data_source: redfin
+  redfin_region_type: 6        # 5=county, 6=city
   redfin_max_homes: 350        # Redfin hard cap per request
-  # To find your region_id: redfin.com → search area → Download All → inspect URL
 
-enrich:
-  hud_state_fips: "53"                 # WA=53 (census.gov/geo/reference/ansi_statetables)
-  hud_county_name: "King County"       # county to look up HUD Fair Market Rents for
+enrich: {}
+  # County is auto-detected from listing ZIP via USPS crosswalk (HUD + Census APIs).
+  # To override (e.g. if crosswalk is unavailable), uncomment:
+  # hud_state_fips: "53"          # WA=53 (census.gov/geo/reference/ansi_statetables)
+  # hud_county_name: "King County"
   # Requires HUD_API_KEY in .env — free at huduser.gov/portal/dataset/fmr-api.html
 
 
 criteria:
-  max_price: 500000          # USD — maximum purchase price
+  max_price: 2250000         # USD — maximum purchase price
   min_beds: 3                # minimum bedrooms
-  max_dom: 30                # maximum days on market
+  max_dom: 9999              # maximum days on market (9999 = no limit)
   target_cap_rate: 0.05      # 5% minimum cap rate for shortlist ranking
   walkscore_min: 50          # minimum Walk Score (0-100)
   dom_outlier_multiplier: 2.0  # flag if DOM > 2x market average
-  max_hoa_fee: null          # monthly HOA fee limit in USD (null = no filter)
+  max_hoa_fee: 0             # monthly HOA fee limit in USD (0 = no HOA allowed)
+  min_cap_rate: null         # e.g. 0.04 = 4% minimum cap rate hard filter (null = no filter)
+  preferred_home_types:      # null = no filter; list to restrict by type
+    - "Single Family"
 
 financial_assumptions:
-  down_payment_pct: 0.25     # 25% down payment
-  loan_rate_annual: 0.07     # 7% annual interest rate
+  down_payment_pct: 0.25     # 25% down payment (adjust between 0.20–0.30 as needed)
+  loan_rate_annual: 0.0525   # 5.25% annual interest rate
   loan_term_years: 30        # 30-year mortgage
   vacancy_rate: 0.08         # 8% vacancy allowance
   management_fee_pct: 0.10   # 10% of gross rent for property management
@@ -37,4 +46,6 @@ financial_assumptions:
 output:
   max_shortlist: 5           # maximum properties in ranked shortlist
   market: "Seattle, WA"      # target market (overridable via --market CLI flag)
-  use_mock_ranker: true      # set true to skip Claude API call (uses heuristic ranking)
+  ranker: ollama             # "mock" | "ollama" | "claude"
+  ollama_model: llama3.1:8b  # model name from `ollama list`
+  ollama_base_url: http://localhost:11434

@@ -1,18 +1,16 @@
 """
 Fetch listings from a data source.
 
-Two backends:
+Three backends:
   fixtures — load from fixtures/listings.json (default, for development)
+  csv      — load from a locally saved Redfin CSV (recommended for real data)
   redfin   — fetch live CSV from Redfin's "Download All" endpoint (no API key)
 
-Set fetch.data_source: redfin in config.yaml to use live data.
-
-To find your market's region_id:
-  1. Go to redfin.com and search your city or county
-  2. Apply any filters you want
-  3. Click "Download All" (below the map)
-  4. Copy the URL — region_id and region_type are in the query string
-  King County, WA default: region_id=118, region_type=5
+To use the csv backend:
+  1. Go to redfin.com and search your city/filters
+  2. Click "Download All" (bottom of results page)
+  3. Save the file to data/redfin.csv  (or set fetch.csv_path in config.yaml)
+  4. Set fetch.data_source: csv in config.yaml
 """
 import csv
 import io
@@ -69,6 +67,14 @@ def fetch_listings(
         logger.info("Fetching live listings from Redfin for %s", market)
         return _fetch_from_redfin(fetch_config)
 
+    if fetch_config and fetch_config.data_source == "csv":
+        paths = fetch_config.csv_paths or [fetch_config.csv_path]
+        if len(paths) == 1:
+            logger.info("Loading listings from CSV: %s", paths[0])
+            return _load_from_csv(paths[0])
+        logger.info("Loading listings from %d CSV files", len(paths))
+        return _load_from_multiple_csvs(paths)
+
     logger.info("Loading fixture listings for %s", market)
     return _load_fixtures()
 
@@ -96,6 +102,56 @@ def _load_fixtures(fixtures_path: Path = _DEFAULT_FIXTURES) -> list[RawListing]:
         except Exception as e:
             raise ValueError(f"Invalid listing at index {i}: {e}") from e
     return listings
+
+
+# ── Local CSV backend ──────────────────────────────────────────────────────────
+
+def _load_from_csv(csv_path: str) -> list[RawListing]:
+    """
+    Load listings from a manually downloaded Redfin CSV file.
+
+    Drop your Redfin "Download All" CSV at data/redfin.csv (or set fetch.csv_path).
+    Same format as the live Redfin endpoint — no transformation needed.
+    """
+    path = Path(csv_path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"CSV file not found: {csv_path}\n"
+            "Download it from redfin.com → search your area → Download All,\n"
+            "then save it to data/redfin.csv (or set fetch.csv_path in config.yaml)."
+        )
+    listings = _parse_redfin_csv(path.read_text(encoding="utf-8-sig"))
+    logger.info("Parsed %d listings from %s", len(listings), csv_path)
+    return listings
+
+
+def _load_from_multiple_csvs(paths: list[str]) -> list[RawListing]:
+    """
+    Load and merge listings from multiple Redfin CSV files.
+
+    Duplicates are removed by address (case-insensitive). When the same
+    address appears in more than one file, the first occurrence wins.
+    """
+    seen: set[str] = set()
+    merged: list[RawListing] = []
+
+    for path in paths:
+        listings = _load_from_csv(path)
+        before = len(merged)
+        for listing in listings:
+            key = listing.address.strip().lower()
+            if key not in seen:
+                seen.add(key)
+                merged.append(listing)
+        added = len(merged) - before
+        dupes = len(listings) - added
+        logger.info(
+            "  %s: %d listings loaded, %d duplicate%s skipped",
+            path, len(listings), dupes, "s" if dupes != 1 else "",
+        )
+
+    logger.info("Merged total: %d unique listings from %d files", len(merged), len(paths))
+    return merged
 
 
 # ── Redfin CSV backend ─────────────────────────────────────────────────────────
@@ -155,10 +211,10 @@ def _parse_redfin_csv(csv_text: str) -> list[RawListing]:
 def _row_to_listing(row: dict, fallback_zpid: str) -> RawListing | None:
     """Convert one Redfin CSV row to a RawListing. Returns None on parse failure."""
     try:
-        address = row.get("ADDRESS", "").strip()
-        city = row.get("CITY", "").strip()
-        state = row.get("STATE OR PROVINCE", "").strip()
-        zip_code = row.get("ZIP OR POSTAL CODE", "").strip()
+        address = (row.get("ADDRESS") or "").strip()
+        city = (row.get("CITY") or "").strip()
+        state = (row.get("STATE OR PROVINCE") or "").strip()
+        zip_code = (row.get("ZIP OR POSTAL CODE") or "").strip()
         full_address = f"{address}, {city}, {state} {zip_code}"
 
         # Use Redfin URL slug as stable ID; fall back to row index
@@ -180,6 +236,8 @@ def _row_to_listing(row: dict, fallback_zpid: str) -> RawListing | None:
             days_on_market=_int_or_none(row.get("DAYS ON MARKET")),
             latitude=_float_or_none(row.get("LATITUDE")),
             longitude=_float_or_none(row.get("LONGITUDE")),
+            listing_url=url or None,
+            year_built=_int_or_none(row.get("YEAR BUILT")),
         )
     except Exception as exc:
         logger.warning("Skipping malformed Redfin row: %s", exc)
@@ -190,7 +248,7 @@ def _get_url_field(row: dict) -> str:
     """Redfin's URL column header is very long — find it by prefix."""
     for key in row:
         if key.startswith("URL"):
-            return row[key].strip()
+            return (row[key] or "").strip()
     return ""
 
 

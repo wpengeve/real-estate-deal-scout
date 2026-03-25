@@ -16,15 +16,17 @@ from pydantic import BaseModel, Field
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 class FetchConfig(BaseModel):
-    data_source: str = "fixtures"      # "fixtures" or "redfin"
+    data_source: str = "fixtures"      # "fixtures", "csv", or "redfin"
+    csv_path: str = "data/redfin.csv"  # single CSV path (used when csv_paths is empty)
+    csv_paths: list[str] = Field(default_factory=list)  # multiple CSVs — merged and deduplicated by address
     redfin_region_id: int = 118        # King County, WA — find yours: go to redfin.com,
     redfin_region_type: int = 5        # search your area, click Download All, check the URL
     redfin_max_homes: int = 350        # Redfin's hard cap per request
 
 
 class EnrichConfig(BaseModel):
-    hud_state_fips: str = "53"              # WA=53; see census.gov/geo/reference/ansi_statetables
-    hud_county_name: str = "King County"    # county name to match in HUD FMR response
+    hud_state_fips: str | None = None       # auto-detected from listing ZIP via crosswalk; override e.g. "53" for WA
+    hud_county_name: str | None = None      # auto-detected from listing ZIP via crosswalk; override e.g. "King County"
 
 
 class ScreeningCriteria(BaseModel):
@@ -34,7 +36,9 @@ class ScreeningCriteria(BaseModel):
     target_cap_rate: float = 0.05
     walkscore_min: int = 50
     dom_outlier_multiplier: float = 2.0
-    max_hoa_fee: float | None = None  # monthly; None = no filter
+    max_hoa_fee: float | None = None          # monthly; None = no filter
+    min_cap_rate: float | None = None         # e.g. 0.04 = 4%; None = no filter
+    preferred_home_types: list[str] | None = None  # None = no filter; e.g. ["Single Family"]
 
 
 class FinancialAssumptions(BaseModel):
@@ -52,7 +56,10 @@ class FinancialAssumptions(BaseModel):
 class OutputConfig(BaseModel):
     max_shortlist: int = 5
     market: str
-    use_mock_ranker: bool = False
+    ranker: str = "mock"               # "mock" | "ollama" | "claude"
+    ollama_model: str = "llama3.2"     # model name as shown in `ollama list`
+    ollama_base_url: str = "http://localhost:11434"
+    use_mock_ranker: bool = True       # legacy alias — overridden by ranker field
 
 
 class InvestmentConfig(BaseModel):
@@ -80,10 +87,16 @@ class RawListing(BaseModel):
     zestimate: float | None = None
     estimated_monthly_rent: float | None = None
     property_tax_annual: float | None = None  # from listing; fallback: price × rate
+    tax_assessed_value: float | None = None       # land + improvement (total)
+    tax_assessed_land: float | None = None        # land-only assessed value
+    tax_assessed_improvement: float | None = None # building/structure assessed value
+    zoning: str | None = None                 # zoning code e.g. "SF 5000", "LR1", "MR"
     flood_zone: str | None = None             # from fixture or FEMA lookup
     walk_score: int | None = None             # from fixture or WalkScore API
     latitude: float | None = None
     longitude: float | None = None
+    listing_url: str | None = None            # full Redfin listing URL
+    year_built: int | None = None
 
 
 class ScreenResult(BaseModel):
@@ -129,6 +142,26 @@ class RiskResult(BaseModel):
     overall_risk: RiskLevel = RiskLevel.LOW
 
 
+class AppreciationSignals(BaseModel):
+    price_to_rent_ratio: float | None = None    # price / annual_rent (GRM); lower = better yield
+    assessment_ratio: float | None = None        # assessed_value / price; <0.8 = underassessed
+    land_value_pct: float | None = None          # land_value / total_assessed; high = land-driven
+    renovation_candidate: bool = False           # year_built < 1975 (value-add potential)
+    appreciation_score: int | None = None        # 1–5 composite signal score
+    signals: list[str] = Field(default_factory=list)  # human-readable signal descriptions
+
+
+class ZoningPotential(BaseModel):
+    zoned_units: int | None = None            # max units current zoning allows
+    adu_eligible: bool = False                # can add attached ADU (in-law suite)
+    dadu_eligible: bool = False               # can add detached ADU (backyard cottage)
+    subdivision_eligible: bool = False        # lot large enough to subdivide
+    hb1110_duplex: bool = False               # WA HB 1110 duplex rights apply
+    development_score: int | None = None      # 1–5 (5 = strongest potential)
+    opportunities: list[str] = Field(default_factory=list)
+    summary: str | None = None
+
+
 class AnalyzedListing(BaseModel):
     listing: RawListing
     walk_score: int | None = None
@@ -142,6 +175,8 @@ class FlaggedListing(BaseModel):
     estimated_monthly_rent: float | None = None
     financials: FinancialResult
     risks: RiskResult
+    zoning_potential: ZoningPotential | None = None
+    appreciation: AppreciationSignals | None = None
 
 
 # ─── Claude output ────────────────────────────────────────────────────────────
@@ -161,10 +196,23 @@ class DealNarrative(BaseModel):
     cap_rate: float | None = None
     coc_return: float | None = None
     monthly_cashflow: float | None = None
+    noi_annual: float | None = None            # pre-financing NOI — used for JS recalculation
+    monthly_mortgage: float | None = None      # baseline mortgage — used for JS recalculation
+    estimated_monthly_rent: float | None = None  # used for JS recalculation
     walk_score: int | None = None
     flood_zone: str | None = None
+    tax_assessed_value: float | None = None
+    tax_assessed_land: float | None = None
+    tax_assessed_improvement: float | None = None
+    zoning: str | None = None
     risk_level: str
     narrative: str
+    zoning_potential: ZoningPotential | None = None
+    appreciation: AppreciationSignals | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    listing_url: str | None = None
+    year_built: int | None = None
 
 
 class Shortlist(BaseModel):

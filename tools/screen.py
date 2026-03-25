@@ -34,6 +34,13 @@ def screen_listing(listing: RawListing, criteria: ScreeningCriteria) -> ScreenRe
     ):
         return ScreenResult(listing=listing, passed=False, reason="hoa_too_high")
 
+    if (
+        criteria.preferred_home_types is not None
+        and listing.home_type is not None
+        and listing.home_type not in criteria.preferred_home_types
+    ):
+        return ScreenResult(listing=listing, passed=False, reason="home_type_excluded")
+
     return ScreenResult(listing=listing, passed=True)
 
 
