@@ -231,7 +231,7 @@ def _row_to_listing(row: dict, fallback_zpid: str) -> RawListing | None:
             baths=_float_or_none(row.get("BATHS")),
             sqft=_int_or_none(row.get("SQUARE FEET")),
             lot_sqft=_int_or_none(row.get("LOT SIZE")),
-            home_type=_HOME_TYPE_MAP.get(row.get("PROPERTY TYPE", "").strip()),
+            home_type=_HOME_TYPE_MAP.get((row.get("PROPERTY TYPE") or "").strip()),
             hoa_fee=hoa if hoa and hoa > 0 else None,
             days_on_market=_int_or_none(row.get("DAYS ON MARKET")),
             latitude=_float_or_none(row.get("LATITUDE")),
