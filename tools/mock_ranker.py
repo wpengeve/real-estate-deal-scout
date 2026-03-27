@@ -67,11 +67,6 @@ def _narrative(rank: int, f: FlaggedListing, config: InvestmentConfig) -> str:
             f"Cap rate exceeds target of {config.criteria.target_cap_rate:.1%} — "
             "meets investment threshold."
         )
-    elif fin.cap_rate is not None:
-        parts.append(
-            f"Cap rate below target of {config.criteria.target_cap_rate:.1%} — "
-            "verify rent assumptions."
-        )
 
     return " ".join(parts)
 
@@ -128,6 +123,7 @@ def mock_rank_and_narrate(
                 longitude=f.listing.longitude,
                 listing_url=f.listing.listing_url,
                 year_built=f.listing.year_built,
+                nearby_schools=f.listing.nearby_schools,
             )
         )
 
