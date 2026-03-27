@@ -197,7 +197,7 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
     price_attr = f' data-price="{deal.price}"' if deal.price else ""
 
     return f"""
-<div class="card{'  card--first' if deal.rank == 1 else ''}"{price_attr}{noi_attr}>
+<div class="card{'  card--first' if deal.rank == 1 else ''}" data-rank="{deal.rank}"{price_attr}{noi_attr}>
   <div class="card-map">{map_html}</div>
   <div class="card-body">
 
@@ -565,6 +565,15 @@ body {{
       <option value="30" {'selected' if default_term == 30 else ''}>30 yr</option>
     </select>
   </label>
+  <label>
+    Show top:
+    <select id="selectShow" onchange="applyShowFilter()">
+      <option value="3">3</option>
+      <option value="5" selected>5</option>
+      <option value="10">10</option>
+      <option value="0">All</option>
+    </select>
+  </label>
   <span class="recalc-note">Cash flow &amp; CoC update live · cap rate is unaffected by financing</span>
 </div>
 
@@ -593,6 +602,14 @@ body {{
   function fmtPct(val) {{
     return (val * 100).toFixed(2) + '%';
   }}
+
+  window.applyShowFilter = function() {{
+    var n = parseInt(document.getElementById('selectShow').value);
+    document.querySelectorAll('.card[data-rank]').forEach(function(card) {{
+      var rank = parseInt(card.dataset.rank);
+      card.style.display = (n === 0 || rank <= n) ? '' : 'none';
+    }});
+  }};
 
   window.recalcAll = function() {{
     var downPct = parseFloat(document.getElementById('sliderDown').value) / 100;

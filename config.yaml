@@ -12,7 +12,8 @@ fetch:
   redfin_region_type: 6        # 5=county, 6=city
   redfin_max_homes: 350        # Redfin hard cap per request
 
-enrich: {}
+enrich:
+  hud_rent_multiplier: 1.25      # HUD FMR underestimates market rents in Seattle; 1.25 = +25%
   # County is auto-detected from listing ZIP via USPS crosswalk (HUD + Census APIs).
   # To override (e.g. if crosswalk is unavailable), uncomment:
   # hud_state_fips: "53"          # WA=53 (census.gov/geo/reference/ansi_statetables)
@@ -44,7 +45,7 @@ financial_assumptions:
   property_tax_rate_pct: 0.012  # 1.2% fallback if not in listing data
 
 output:
-  max_shortlist: 5           # maximum properties in ranked shortlist
+  max_shortlist: 15          # maximum properties in ranked shortlist
   market: "Seattle, WA"      # target market (overridable via --market CLI flag)
   ranker: ollama             # "mock" | "ollama" | "claude"
   ollama_model: llama3.1:8b  # model name from `ollama list`
