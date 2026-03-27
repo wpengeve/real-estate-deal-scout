@@ -28,6 +28,7 @@ def _listing(walk_score=None, lat=30.25, lon=-97.75, **kwargs) -> RawListing:
         walk_score=walk_score,
         latitude=lat,
         longitude=lon,
+        nearby_schools=[],  # pre-set to skip NCES lookup in enrich tests
         **kwargs,
     )
 

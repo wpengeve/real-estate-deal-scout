@@ -247,6 +247,15 @@ async def _claude_rank_and_narrate(
             "lot_sqft": f.listing.lot_sqft,
             "home_type": f.listing.home_type,
             "school_district": f.listing.school_district,
+            "nearby_schools": [
+                {
+                    "name": s.name,
+                    "level": s.level,
+                    "distance_miles": round(s.distance_miles, 2) if s.distance_miles else None,
+                    "proficiency_score": s.proficiency_score,
+                }
+                for s in (f.listing.nearby_schools or [])
+            ] or None,
             "hoa_fee": f.listing.hoa_fee,
             "days_on_market": f.listing.days_on_market,
             "walk_score": f.walk_score,
@@ -327,6 +336,7 @@ Properties with HIGH risk should be noted prominently in the narrative."""
         deal.longitude = f.listing.longitude
         deal.listing_url = f.listing.listing_url
         deal.year_built = f.listing.year_built
+        deal.nearby_schools = f.listing.nearby_schools
 
     return shortlist
 

@@ -17,6 +17,7 @@ import httpx
 from tools.assessor import lookup_parcel
 from tools.crosswalk import zip_to_county
 from tools.models import EnrichConfig, EnrichResult, RawListing
+from tools.schools import enrich_with_proficiency, fetch_nearby_schools
 
 logger = logging.getLogger(__name__)
 
@@ -78,27 +79,53 @@ async def enrich_neighborhood(
     enrich_config: EnrichConfig | None = None,
 ) -> EnrichResult:
     """
-    Enrich a listing with Walk Score and rent estimate.
+    Enrich a listing concurrently: Walk Score, HUD rent, KC Assessor, and nearby
+    schools all run in parallel via asyncio.gather.
 
     Always returns EnrichResult (never raises).
     Fields are None when the data source is unavailable or unconfigured.
     """
-    walk_score = await _fetch_walk_score(listing)
+    async def _get_rent() -> float | None:
+        if listing.estimated_monthly_rent is not None:
+            return listing.estimated_monthly_rent
+        if _HUD_API_KEY and listing.beds:
+            rent = await _fetch_hud_fmr_rent(listing.beds, listing.address, enrich_config)
+            if rent and enrich_config and enrich_config.hud_rent_multiplier != 1.0:
+                rent = round(rent * enrich_config.hud_rent_multiplier)
+            return rent
+        return None
 
-    # Use rent already on the listing if present; otherwise try HUD FMR
-    rent = listing.estimated_monthly_rent
-    if rent is None and _HUD_API_KEY and listing.beds:
-        rent = await _fetch_hud_fmr_rent(listing.beds, listing.address, enrich_config)
+    async def _get_parcel() -> dict | None:
+        if listing.tax_assessed_value is None or listing.zoning is None:
+            return await lookup_parcel(listing.address)
+        return None
 
-    # Fetch KC Assessor data (tax assessed value + zoning) if not already set
+    async def _get_schools() -> list | None:
+        # Return None = "no update needed" (already set or no coordinates)
+        if listing.nearby_schools is not None:
+            return None
+        if not listing.latitude or not listing.longitude:
+            return None
+        schools = await fetch_nearby_schools(listing.latitude, listing.longitude)
+        if schools:
+            schools = await enrich_with_proficiency(schools)
+        return schools or []
+
+    walk_score, rent, parcel, schools = await asyncio.gather(
+        _fetch_walk_score(listing),
+        _get_rent(),
+        _get_parcel(),
+        _get_schools(),
+    )
+
     updated_listing = listing
-    if listing.tax_assessed_value is None or listing.zoning is None:
-        parcel = await lookup_parcel(listing.address)
-        if parcel:
-            updated_listing = listing.model_copy(update={
-                k: v for k, v in parcel.items()
-                if v is not None and getattr(listing, k) is None
-            })
+    if parcel:
+        updated_listing = listing.model_copy(update={
+            k: v for k, v in parcel.items()
+            if v is not None and getattr(listing, k) is None
+        })
+    if schools is not None:
+        updated_listing = updated_listing.model_copy(update={"nearby_schools": schools})
 
     return EnrichResult(
         listing=updated_listing,

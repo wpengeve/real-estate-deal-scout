@@ -27,6 +27,7 @@ class FetchConfig(BaseModel):
 class EnrichConfig(BaseModel):
     hud_state_fips: str | None = None       # auto-detected from listing ZIP via crosswalk; override e.g. "53" for WA
     hud_county_name: str | None = None      # auto-detected from listing ZIP via crosswalk; override e.g. "King County"
+    hud_rent_multiplier: float = 1.0        # scale HUD FMR rent up for high-cost markets (e.g. 1.25 for Seattle)
 
 
 class ScreeningCriteria(BaseModel):
@@ -97,6 +98,7 @@ class RawListing(BaseModel):
     longitude: float | None = None
     listing_url: str | None = None            # full Redfin listing URL
     year_built: int | None = None
+    nearby_schools: list["SchoolInfo"] | None = None  # populated during enrichment
 
 
 class ScreenResult(BaseModel):
@@ -122,6 +124,14 @@ class FinancialResult(BaseModel):
     noi_annual: float | None = None
     monthly_mortgage: float | None = None
     total_cash_invested: float | None = None
+
+
+class SchoolInfo(BaseModel):
+    nces_id: str
+    name: str
+    level: str                          # "Elementary", "Middle", "High", "School"
+    distance_miles: float | None = None
+    proficiency_score: float | None = None  # avg math+reading % proficient (0–100)
 
 
 class RiskLevel(str, Enum):
@@ -213,6 +223,7 @@ class DealNarrative(BaseModel):
     longitude: float | None = None
     listing_url: str | None = None
     year_built: int | None = None
+    nearby_schools: list[SchoolInfo] | None = None
 
 
 class Shortlist(BaseModel):
