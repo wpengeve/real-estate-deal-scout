@@ -319,7 +319,7 @@ body {{
   border-radius: 12px;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 200px 1fr;
   margin-bottom: 1.5rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
   transition: box-shadow 0.2s;
@@ -335,21 +335,21 @@ body {{
 /* ── Map pane ── */
 .card-map {{
   position: relative;
-  min-height: 280px;
+  min-height: 200px;
   background: #e2e8f0;
   cursor: pointer;
 }}
 .map-container {{
   width: 100%;
   height: 100%;
-  min-height: 280px;
+  min-height: 200px;
 }}
 .map-placeholder {{
   display: flex;
   align-items: center;
   justify-content: center;
   height: 100%;
-  min-height: 280px;
+  min-height: 200px;
 }}
 .map-link {{
   color: #2563eb;
@@ -430,10 +430,9 @@ body {{
 
 /* ── Narrative ── */
 .narrative {{
-  font-size: 0.875rem;
-  color: #475569;
-  line-height: 1.65;
-  font-style: italic;
+  font-size: 1rem;
+  color: #334155;
+  line-height: 1.7;
   border-top: 1px solid #f1f5f9;
   padding-top: 0.875rem;
   flex: 1;
@@ -504,34 +503,36 @@ body {{
 
 /* ── Assumption sliders ── */
 .sliders-bar {{
-  background: rgba(255,255,255,0.10);
-  border: 1px solid rgba(255,255,255,0.18);
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  margin-top: 0.75rem;
-  display: flex; flex-wrap: wrap; gap: 1.25rem; align-items: center;
-  max-width: 720px;
-  font-size: 0.82rem;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0.75rem 2rem;
+  display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: center;
+  font-size: 0.875rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }}
-.sliders-bar label {{ color: rgba(255,255,255,0.9); white-space: nowrap; }}
-.sliders-bar input[type=range] {{ width: 110px; accent-color: #93c5fd; vertical-align: middle; }}
+.sliders-bar label {{ color: #374151; white-space: nowrap; display: flex; align-items: center; gap: 0.5rem; font-weight: 500; }}
+.sliders-bar input[type=range] {{ width: 120px; accent-color: #2563eb; vertical-align: middle; }}
 .sliders-bar select {{
-  background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.3);
-  border-radius: 4px; padding: 0.2rem 0.4rem; font-size: 0.82rem;
+  background: #f8fafc; color: #1e293b; border: 1px solid #e2e8f0;
+  border-radius: 6px; padding: 0.25rem 0.5rem; font-size: 0.875rem;
 }}
-.slider-val {{ font-weight: 700; color: #93c5fd; min-width: 2.5rem; display: inline-block; }}
+.slider-val {{ font-weight: 700; color: #2563eb; min-width: 3rem; display: inline-block; }}
 .sliders-bar .recalc-note {{
-  font-size: 0.72rem; color: rgba(255,255,255,0.5); width: 100%; margin-top: -0.5rem;
+  font-size: 0.75rem; color: #94a3b8; margin-left: auto;
 }}
 
 /* ── Responsive ── */
 @media (max-width: 700px) {{
   .card {{ grid-template-columns: 1fr; }}
-  .card-map {{ min-height: 200px; }}
-  .map-container {{ min-height: 200px; }}
+  .card-map {{ min-height: 180px; }}
+  .map-container {{ min-height: 180px; }}
   .metrics-grid {{ grid-template-columns: 1fr 1fr; }}
   .main {{ padding: 1rem; }}
-  .sliders-bar {{ gap: 0.75rem; }}
+  .sliders-bar {{ padding: 0.75rem 1rem; gap: 0.75rem; }}
+  .sliders-bar .recalc-note {{ display: none; }}
 }}
 </style>
 </head>
@@ -541,29 +542,30 @@ body {{
   <h1>Deal Scout &nbsp;·&nbsp; {shortlist.market}</h1>
   <p class="subtitle">Top {count} investment {'property' if count == 1 else 'properties'} &nbsp;·&nbsp; Click a map to open Street View</p>
   <div class="summary-bar">{shortlist.run_summary}</div>
-  <div class="sliders-bar">
-    <label>
-      Down payment:
-      <input type="range" id="sliderDown" min="5" max="50" step="1" value="{default_down}"
-             oninput="document.getElementById('valDown').textContent=this.value+'%';recalcAll()">
-      <span class="slider-val" id="valDown">{default_down}%</span>
-    </label>
-    <label>
-      Loan rate:
-      <input type="range" id="sliderRate" min="3" max="12" step="0.25" value="{default_rate:.2f}"
-             oninput="document.getElementById('valRate').textContent=parseFloat(this.value).toFixed(2)+'%';recalcAll()">
-      <span class="slider-val" id="valRate">{default_rate:.2f}%</span>
-    </label>
-    <label>
-      Term:
-      <select id="selectTerm" onchange="recalcAll()">
-        <option value="15" {'selected' if default_term == 15 else ''}>15 yr</option>
-        <option value="20" {'selected' if default_term == 20 else ''}>20 yr</option>
-        <option value="30" {'selected' if default_term == 30 else ''}>30 yr</option>
-      </select>
-    </label>
-    <span class="recalc-note">Cash flow &amp; CoC update live · cap rate is unaffected by financing</span>
-  </div>
+</div>
+
+<div class="sliders-bar">
+  <label>
+    Down payment:
+    <input type="range" id="sliderDown" min="5" max="50" step="1" value="{default_down}"
+           oninput="document.getElementById('valDown').textContent=this.value+'%';recalcAll()">
+    <span class="slider-val" id="valDown">{default_down}%</span>
+  </label>
+  <label>
+    Loan rate:
+    <input type="range" id="sliderRate" min="3" max="12" step="0.25" value="{default_rate:.2f}"
+           oninput="document.getElementById('valRate').textContent=parseFloat(this.value).toFixed(2)+'%';recalcAll()">
+    <span class="slider-val" id="valRate">{default_rate:.2f}%</span>
+  </label>
+  <label>
+    Term:
+    <select id="selectTerm" onchange="recalcAll()">
+      <option value="15" {'selected' if default_term == 15 else ''}>15 yr</option>
+      <option value="20" {'selected' if default_term == 20 else ''}>20 yr</option>
+      <option value="30" {'selected' if default_term == 30 else ''}>30 yr</option>
+    </select>
+  </label>
+  <span class="recalc-note">Cash flow &amp; CoC update live · cap rate is unaffected by financing</span>
 </div>
 
 <main class="main">
