@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 _NCES_URL = (
     "https://nces.ed.gov/opengis/rest/services"
-    "/K12_School_Locations/EDGE_GEOCODE_PUBLICSCH_2223/MapServer/0/query"
+    "/K12_School_Locations/EDGE_GEOCODE_PUBLICSCH_2425/MapServer/0/query"
 )
 _NCES_TIMEOUT = 10.0
 _NCES_RADIUS_MILES = 1.5
@@ -39,15 +39,18 @@ _URBAN_TIMEOUT = 10.0
 # in-process cache: nces_id → proficiency score (None = not found)
 _proficiency_cache: dict[str, float | None] = {}
 
-# ── NCES level code → label ────────────────────────────────────────────────────
+# ── Level inference from school name ──────────────────────────────────────────
+# The 2024-25 NCES schema dropped the LEVEL field; infer from name keywords.
 
-_LEVEL_MAP = {
-    1: "Elementary", "1": "Elementary",
-    2: "Elementary", "2": "Elementary",
-    3: "Middle",     "3": "Middle",
-    4: "High",       "4": "High",
-    5: "School",     "5": "School",   # K-12 combined
-}
+def _infer_level(name: str) -> str:
+    n = name.lower()
+    if any(k in n for k in ("high school", "senior high", " hs ")):
+        return "High"
+    if any(k in n for k in ("middle school", "junior high", " ms ")):
+        return "Middle"
+    if any(k in n for k in ("elementary", "primary", "k-8", "k8")):
+        return "Elementary"
+    return "School"
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -64,7 +67,7 @@ async def fetch_nearby_schools(lat: float, lon: float) -> list[SchoolInfo]:
         "spatialRel": "esriSpatialRelIntersects",
         "distance": _NCES_RADIUS_MILES,
         "units": "esriSRUnit_StatuteMile",
-        "outFields": "NCESSCH,SCHNAM,NAME,LEVEL,LAT,LON",
+        "outFields": "NCESSCH,NAME,LAT,LON",
         "returnGeometry": "false",
         "f": "json",
     }
@@ -81,8 +84,8 @@ async def fetch_nearby_schools(lat: float, lon: float) -> list[SchoolInfo]:
     for feat in features:
         a = feat.get("attributes", {})
         nces_id = str(a.get("NCESSCH") or "").zfill(12)
-        name = a.get("SCHNAM") or a.get("NAME") or ""
-        level = _LEVEL_MAP.get(a.get("LEVEL"), "School")
+        name = a.get("NAME") or ""
+        level = _infer_level(name)
         s_lat, s_lon = a.get("LAT"), a.get("LON")
         dist = _haversine(lat, lon, s_lat, s_lon) if s_lat and s_lon else None
         schools.append(SchoolInfo(nces_id=nces_id, name=name, level=level, distance_miles=dist))

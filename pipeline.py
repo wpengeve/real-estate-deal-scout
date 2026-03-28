@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 _OUTPUTS_DIR = Path("outputs")
-_CLAUDE_MODEL = "claude-opus-4-6"
+_CLAUDE_MODEL = "claude-sonnet-4-6"
 
 
 async def run(market: str, config: InvestmentConfig) -> Shortlist:

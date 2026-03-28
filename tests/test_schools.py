@@ -20,8 +20,7 @@ _NCES_RESPONSE = {
         {
             "attributes": {
                 "NCESSCH": 530006000015,
-                "SCHNAM": "Test Elementary School",
-                "LEVEL": 1,
+                "NAME": "Test Elementary School",
                 "LAT": 47.55,
                 "LON": -122.28,
             }
@@ -29,8 +28,7 @@ _NCES_RESPONSE = {
         {
             "attributes": {
                 "NCESSCH": 530006000016,
-                "SCHNAM": "Test High School",
-                "LEVEL": 4,
+                "NAME": "Test High School",
                 "LAT": 47.56,
                 "LON": -122.29,
             }
