@@ -155,6 +155,31 @@ def _render_zoning_potential(deal) -> str:
 </div>"""
 
 
+def _render_schools(deal: DealNarrative) -> str:
+    schools = deal.nearby_schools
+    if not schools:
+        return ""
+
+    rows = []
+    for s in schools[:5]:  # cap at 5 to keep card height reasonable
+        dist = f"{s.distance_miles:.1f} mi" if s.distance_miles is not None else ""
+        score_html = ""
+        if s.proficiency_score is not None:
+            pct = s.proficiency_score
+            color = "#16a34a" if pct >= 70 else "#f59e0b" if pct >= 50 else "#dc2626"
+            score_html = f' <span style="color:{color};font-weight:700">{pct:.0f}%</span>'
+        rows.append(
+            f'<li><span class="school-level">{s.level[:2].upper()}</span>'
+            f' {s.name}{score_html}'
+            f'{f" · {dist}" if dist else ""}</li>'
+        )
+
+    return f"""<div class="schools">
+  <div class="schools-header">Nearby Schools</div>
+  <ul class="schools-list">{"".join(rows)}</ul>
+</div>"""
+
+
 def _render_appreciation(deal: DealNarrative) -> str:
     ap = deal.appreciation
     if not ap or not ap.signals:
@@ -235,6 +260,7 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
       </div>
       {_render_assessed(deal)}
       {f'<div class="metric"><div class="metric-label">Walk Score</div><div class="metric-value">{deal.walk_score}</div></div>' if deal.walk_score is not None else ""}
+      {f'<div class="metric"><div class="metric-label">Sun (GHI)</div><div class="metric-value">{deal.solar_ghi_annual:.2f} kWh/m²/d</div></div>' if deal.solar_ghi_annual is not None else ""}
       {f'<div class="metric"><div class="metric-label">Flood Zone</div><div class="metric-value">{deal.flood_zone}</div></div>' if deal.flood_zone else ""}
       {f'<div class="metric"><div class="metric-label">Zoning</div><div class="metric-value zoning">{deal.zoning}</div></div>' if deal.zoning else ""}
       {f'<div class="metric"><div class="metric-label">HOA</div><div class="metric-value negative">{_fmt_currency(deal.hoa_fee)}/mo</div></div>' if deal.hoa_fee else ""}
@@ -243,6 +269,7 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
 
     <div class="narrative">{deal.narrative}</div>
 
+    {_render_schools(deal)}
     {_render_zoning_potential(deal)}
     {_render_appreciation(deal)}
 
@@ -466,6 +493,25 @@ body {{
 .zp-opps {{
   margin: 0; padding-left: 1rem;
   font-size: 0.775rem; color: #64748b; line-height: 1.7;
+}}
+
+/* ── Schools ── */
+.schools {{
+  border-top: 1px solid #f1f5f9;
+  padding-top: 0.875rem;
+}}
+.schools-header {{
+  font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: #475569; margin-bottom: 0.4rem;
+}}
+.schools-list {{
+  margin: 0; padding-left: 0; list-style: none;
+  font-size: 0.775rem; color: #64748b; line-height: 1.8;
+}}
+.school-level {{
+  font-size: 0.6rem; font-weight: 700; background: #e2e8f0; color: #475569;
+  padding: 0.1rem 0.35rem; border-radius: 3px; vertical-align: middle;
+  letter-spacing: 0.04em; margin-right: 0.25rem;
 }}
 
 /* ── Redfin button ── */

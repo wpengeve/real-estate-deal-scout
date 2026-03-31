@@ -99,6 +99,7 @@ class RawListing(BaseModel):
     listing_url: str | None = None            # full Redfin listing URL
     year_built: int | None = None
     nearby_schools: list["SchoolInfo"] | None = None  # populated during enrichment
+    solar_ghi_annual: float | None = None     # avg GHI kWh/m²/day (NREL); higher = more sun
 
 
 class ScreenResult(BaseModel):
@@ -224,6 +225,7 @@ class DealNarrative(BaseModel):
     listing_url: str | None = None
     year_built: int | None = None
     nearby_schools: list[SchoolInfo] | None = None
+    solar_ghi_annual: float | None = None
 
 
 class Shortlist(BaseModel):

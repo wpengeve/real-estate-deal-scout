@@ -4,10 +4,16 @@
 fetch:
   data_source: csv             # "fixtures" | "csv" | "redfin"
   csv_path: data/redfin.csv    # single CSV — used when csv_paths is not set
-  # csv_paths:                 # combine multiple CSVs (merged + deduplicated by address)
-  #   - data/seattle_sfh.csv
-  #   - data/seattle_multifamily.csv
-  #   - data/tacoma.csv
+  csv_paths:                   # combine multiple CSVs (merged + deduplicated by address)
+    - data/redfin_2026-03-27-21-35-29.csv
+    - data/redfin_2026-03-27-21-36-23.csv
+    - data/redfin_2026-03-27-21-36-55.csv
+    - data/redfin_2026-03-27-21-37-17.csv
+    - data/redfin_2026-03-27-21-38-09.csv
+    - data/redfin_2026-03-27-21-41-35.csv
+    - data/redfin_2026-03-27-21-42-00.csv
+    - data/redfin_2026-03-27-21-42-13.csv
+    - data/redfin_2026-03-27-21-42-30.csv
   redfin_region_id: 16904      # only used when data_source: redfin
   redfin_region_type: 6        # 5=county, 6=city
   redfin_max_homes: 350        # Redfin hard cap per request

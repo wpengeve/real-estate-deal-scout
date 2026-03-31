@@ -18,6 +18,7 @@ from tools.assessor import lookup_parcel
 from tools.crosswalk import zip_to_county
 from tools.models import EnrichConfig, EnrichResult, RawListing
 from tools.schools import enrich_with_proficiency, fetch_nearby_schools
+from tools.solar import fetch_solar_ghi
 
 logger = logging.getLogger(__name__)
 
@@ -111,11 +112,19 @@ async def enrich_neighborhood(
             schools = await enrich_with_proficiency(schools)
         return schools or []
 
-    walk_score, rent, parcel, schools = await asyncio.gather(
+    async def _get_solar() -> float | None:
+        if listing.solar_ghi_annual is not None:
+            return listing.solar_ghi_annual
+        if listing.latitude and listing.longitude:
+            return await fetch_solar_ghi(listing.latitude, listing.longitude)
+        return None
+
+    walk_score, rent, parcel, schools, solar_ghi = await asyncio.gather(
         _fetch_walk_score(listing),
         _get_rent(),
         _get_parcel(),
         _get_schools(),
+        _get_solar(),
     )
 
     updated_listing = listing
@@ -126,6 +135,8 @@ async def enrich_neighborhood(
         })
     if schools is not None:
         updated_listing = updated_listing.model_copy(update={"nearby_schools": schools})
+    if solar_ghi is not None:
+        updated_listing = updated_listing.model_copy(update={"solar_ghi_annual": solar_ghi})
 
     return EnrichResult(
         listing=updated_listing,
