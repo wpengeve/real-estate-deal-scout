@@ -24,7 +24,6 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_NREL_API_KEY = os.getenv("NREL_API_KEY")
 _NREL_URL = "https://developer.nrel.gov/api/solar/solar_resource/v1.json"
 _NREL_TIMEOUT = 10.0
 
@@ -40,7 +39,9 @@ async def fetch_solar_ghi(lat: float, lon: float) -> float | None:
     Returns None if no API key, coordinates missing, or request fails.
     Results are cached in-process to avoid duplicate calls for nearby listings.
     """
-    if not _NREL_API_KEY:
+    # Read lazily so load_dotenv() timing doesn't matter
+    api_key = os.getenv("NREL_API_KEY")
+    if not api_key:
         return None
 
     cache_key = (round(lat, 2), round(lon, 2))
@@ -51,7 +52,7 @@ async def fetch_solar_ghi(lat: float, lon: float) -> float | None:
         async with httpx.AsyncClient(timeout=_NREL_TIMEOUT) as client:
             resp = await client.get(
                 _NREL_URL,
-                params={"api_key": _NREL_API_KEY, "lat": lat, "lon": lon},
+                params={"api_key": api_key, "lat": lat, "lon": lon},
             )
             resp.raise_for_status()
             outputs = resp.json().get("outputs", {})

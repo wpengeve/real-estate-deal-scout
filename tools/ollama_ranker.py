@@ -276,4 +276,5 @@ def _make_deal(
         listing_url=f.listing.listing_url,
         year_built=f.listing.year_built,
         nearby_schools=f.listing.nearby_schools,
+        solar_ghi_annual=f.listing.solar_ghi_annual,
     )

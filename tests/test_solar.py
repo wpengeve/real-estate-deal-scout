@@ -27,7 +27,7 @@ _NREL_RESPONSE = {
 @pytest.fixture(autouse=True)
 def _patch_api_key(monkeypatch):
     """Ensure NREL_API_KEY is set for all tests in this module."""
-    monkeypatch.setattr(solar_mod, "_NREL_API_KEY", "test-key")
+    monkeypatch.setenv("NREL_API_KEY", "test-key")
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +49,7 @@ async def test_fetch_solar_ghi_success(httpx_mock: HTTPXMock):
 
 @pytest.mark.asyncio
 async def test_fetch_solar_ghi_no_api_key(monkeypatch):
-    monkeypatch.setattr(solar_mod, "_NREL_API_KEY", None)
+    monkeypatch.delenv("NREL_API_KEY", raising=False)
     result = await fetch_solar_ghi(47.55, -122.28)
     assert result is None
 
