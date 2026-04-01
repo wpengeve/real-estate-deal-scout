@@ -19,7 +19,8 @@ fetch:
   redfin_max_homes: 350        # Redfin hard cap per request
 
 enrich:
-  hud_rent_multiplier: 1.25      # HUD FMR underestimates market rents in Seattle; 1.25 = +25%
+  hud_rent_multiplier: 1.0       # Validated against Zillow Rent Zestimate (Apr 2026): HUD FMR
+                                 # already tracks Seattle market well; 1.25 was overestimating ~29%
   # County is auto-detected from listing ZIP via USPS crosswalk (HUD + Census APIs).
   # To override (e.g. if crosswalk is unavailable), uncomment:
   # hud_state_fips: "53"          # WA=53 (census.gov/geo/reference/ansi_statetables)
