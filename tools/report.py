@@ -18,7 +18,10 @@ import json
 import sys
 from pathlib import Path
 
+from urllib.parse import quote
+
 from tools.models import DealNarrative, FinancialAssumptions, Shortlist
+from tools.solar import solar_score
 
 _RISK_COLOR = {
     "LOW":    {"bg": "#dcfce7", "text": "#166534", "border": "#86efac"},
@@ -139,8 +142,11 @@ def _render_zoning_potential(deal) -> str:
 
     opps_html = ""
     if zp.opportunities:
-        items = "".join(f"<li>{o}</li>" for o in zp.opportunities)
-        opps_html = f'<ul class="zp-opps">{items}</ul>'
+        # Skip first bullet if it duplicates the summary text
+        opps = [o for o in zp.opportunities if not (zp.summary and o.strip() == zp.summary.strip())]
+        if opps:
+            items = "".join(f"<li>{o}</li>" for o in opps)
+            opps_html = f'<ul class="zp-opps">{items}</ul>'
 
     summary_html = f'<p class="zp-summary">{zp.summary}</p>' if zp.summary else ""
 
@@ -200,13 +206,34 @@ def _render_appreciation(deal: DealNarrative) -> str:
 </div>"""
 
 
+_SOLAR_SCORE_COLORS = {1: "#94a3b8", 2: "#64748b", 3: "#f59e0b", 4: "#3b82f6", 5: "#16a34a"}
+_SOLAR_SCORE_LABELS = {1: "Low", 2: "Below avg", 3: "Average", 4: "Good", 5: "Excellent"}
+
+
+def _render_solar_metric(deal: DealNarrative) -> str:
+    if deal.solar_ghi_annual is None:
+        return ""
+    score = solar_score(deal.solar_ghi_annual)
+    color = _SOLAR_SCORE_COLORS.get(score or 1, "#94a3b8")
+    label = _SOLAR_SCORE_LABELS.get(score or 1, "")
+    dot = f'<span style="color:{color};font-size:0.7rem;margin-right:0.2rem">●</span>'
+    return (
+        f'<div class="metric">'
+        f'<div class="metric-label">Sun Exposure</div>'
+        f'<div class="metric-value">{dot}{deal.solar_ghi_annual:.1f} hrs/day'
+        f'<span class="solar-label"> {label}</span></div>'
+        f'</div>'
+    )
+
+
 def _render_deal(deal: DealNarrative, idx: int) -> str:
     risk = _RISK_COLOR.get(deal.risk_level, _RISK_COLOR["LOW"])
     cf_class = _cashflow_class(deal.monthly_cashflow)
 
     beds = f"{deal.beds} bd" if deal.beds else "—"
     baths = f"{deal.baths} ba" if deal.baths else "—"
-    dom = f"{deal.days_on_market} days on market" if deal.days_on_market is not None else "—"
+    _dom_n = deal.days_on_market
+    dom = f"{_dom_n} {'day' if _dom_n == 1 else 'days'} on market" if _dom_n is not None else "—"
     sqft = f"{deal.sqft:,} sqft" if deal.sqft else "—"
     lot = f"{deal.lot_sqft:,} sqft lot" if deal.lot_sqft else ""
     year = f"Built {deal.year_built}" if deal.year_built else ""
@@ -252,15 +279,16 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
       </div>
       <div class="metric">
         <div class="metric-label">Cash-on-Cash</div>
-        <div class="metric-value js-coc">{_fmt_pct(deal.coc_return)}</div>
+        <div class="metric-value js-coc {_cashflow_class(deal.coc_return)}">{_fmt_pct(deal.coc_return)}</div>
       </div>
       <div class="metric">
         <div class="metric-label">Monthly Cash Flow</div>
         <div class="metric-value js-cashflow {cf_class}">{_fmt_cashflow(deal.monthly_cashflow)}</div>
       </div>
       {_render_assessed(deal)}
-      {f'<div class="metric"><div class="metric-label">Walk Score</div><div class="metric-value">{deal.walk_score}</div></div>' if deal.walk_score is not None else ""}
-      {f'<div class="metric"><div class="metric-label">Sun (GHI)</div><div class="metric-value">{deal.solar_ghi_annual:.2f} kWh/m²/d</div></div>' if deal.solar_ghi_annual is not None else ""}
+      {f'<div class="metric"><div class="metric-label">Walk Score</div><div class="metric-value">{deal.walk_score}</div></div>' if deal.walk_score is not None else f'<div class="metric"><div class="metric-label">Walk Score</div><div class="metric-value metric-value--link"><a href="https://www.walkscore.com/score/{quote(deal.address, safe="")}" target="_blank" rel="noopener">Look up →</a></div></div>'}
+      {_render_solar_metric(deal)}
+
       {f'<div class="metric"><div class="metric-label">Flood Zone</div><div class="metric-value">{deal.flood_zone}</div></div>' if deal.flood_zone else ""}
       {f'<div class="metric"><div class="metric-label">Zoning</div><div class="metric-value zoning">{deal.zoning}</div></div>' if deal.zoning else ""}
       {f'<div class="metric"><div class="metric-label">HOA</div><div class="metric-value negative">{_fmt_currency(deal.hoa_fee)}/mo</div></div>' if deal.hoa_fee else ""}
@@ -446,6 +474,9 @@ body {{
 .metric-value.positive {{ color: #16a34a; }}
 .metric-value.negative {{ color: #dc2626; }}
 .metric-value.zoning {{ font-size: 0.8rem; }}
+.solar-label {{ font-size: 0.7rem; font-weight: 500; color: #64748b; }}
+.metric-value--link a {{ color: #2563eb; text-decoration: none; font-size: 0.85rem; }}
+.metric-value--link a:hover {{ text-decoration: underline; }}
 .metric--assessed {{ grid-column: span 2; }}
 .assessed-breakdown {{
   display: flex; gap: 0.75rem; margin-top: 0.3rem; flex-wrap: wrap;
@@ -586,7 +617,7 @@ body {{
 
 <div class="page-header">
   <h1>Deal Scout &nbsp;·&nbsp; {shortlist.market}</h1>
-  <p class="subtitle">Top {count} investment {'property' if count == 1 else 'properties'} &nbsp;·&nbsp; Click a map to open Street View</p>
+  <p class="subtitle">Top {count} investment {'property' if count == 1 else 'properties'} &nbsp;·&nbsp; Click a map to open Google Maps</p>
   <div class="summary-bar">{shortlist.run_summary}</div>
 </div>
 
@@ -684,6 +715,9 @@ body {{
       }}
     }});
   }};
+
+  // Apply "show top N" filter on initial page load
+  applyShowFilter();
 }})();
 </script>
 </body>

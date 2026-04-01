@@ -32,10 +32,10 @@ criteria:
   min_beds: 3                # minimum bedrooms
   max_dom: 9999              # maximum days on market (9999 = no limit)
   target_cap_rate: 0.05      # 5% minimum cap rate for shortlist ranking
-  walkscore_min: 50          # minimum Walk Score (0-100)
+  walkscore_min: 0           # Walk Score minimum (0 = disabled until API key is active)
   dom_outlier_multiplier: 2.0  # flag if DOM > 2x market average
   max_hoa_fee: 0             # monthly HOA fee limit in USD (0 = no HOA allowed)
-  min_cap_rate: null         # e.g. 0.04 = 4% minimum cap rate hard filter (null = no filter)
+  min_cap_rate: 0.04         # 4% minimum cap rate hard filter
   preferred_home_types:      # null = no filter; list to restrict by type
     - "Single Family"
 
