@@ -39,6 +39,10 @@ criteria:
   preferred_home_types:      # null = no filter; list to restrict by type
     - "Single Family"
   allowed_cities:            # null = no filter; city name must appear in address
+    # ~20-mile radius from Seattle city center. Excludes far-out listings that
+    # slip into Redfin CSV exports: Puyallup (~35mi), Auburn (~25mi),
+    # Federal Way (~25mi), Cle Elum (~80mi), Tacoma (~35mi).
+    # To expand coverage, add cities here. To disable, set to null.
     - "Seattle"
     - "Bellevue"
     - "Kirkland"
