@@ -38,6 +38,23 @@ criteria:
   min_cap_rate: 0.04         # 4% minimum cap rate hard filter
   preferred_home_types:      # null = no filter; list to restrict by type
     - "Single Family"
+  allowed_cities:            # null = no filter; city name must appear in address
+    - "Seattle"
+    - "Bellevue"
+    - "Kirkland"
+    - "Redmond"
+    - "Lynnwood"
+    - "Shoreline"
+    - "Kenmore"
+    - "Bothell"
+    - "Mountlake Terrace"
+    - "Issaquah"
+    - "Sammamish"
+    - "Renton"
+    - "Burien"
+    - "Tukwila"
+    - "Edmonds"
+    - "Mercer Island"
 
 financial_assumptions:
   down_payment_pct: 0.25     # 25% down payment (adjust between 0.20–0.30 as needed)

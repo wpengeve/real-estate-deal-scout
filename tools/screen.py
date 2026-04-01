@@ -41,6 +41,11 @@ def screen_listing(listing: RawListing, criteria: ScreeningCriteria) -> ScreenRe
     ):
         return ScreenResult(listing=listing, passed=False, reason="home_type_excluded")
 
+    if criteria.allowed_cities is not None:
+        addr_lower = listing.address.lower()
+        if not any(city.lower() in addr_lower for city in criteria.allowed_cities):
+            return ScreenResult(listing=listing, passed=False, reason="city_not_in_target_area")
+
     return ScreenResult(listing=listing, passed=True)
 
 

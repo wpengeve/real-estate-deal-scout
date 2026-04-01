@@ -40,6 +40,7 @@ class ScreeningCriteria(BaseModel):
     max_hoa_fee: float | None = None          # monthly; None = no filter
     min_cap_rate: float | None = None         # e.g. 0.04 = 4%; None = no filter
     preferred_home_types: list[str] | None = None  # None = no filter; e.g. ["Single Family"]
+    allowed_cities: list[str] | None = None   # None = no filter; e.g. ["Seattle", "Bellevue"]
 
 
 class FinancialAssumptions(BaseModel):
