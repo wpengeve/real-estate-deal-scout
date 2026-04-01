@@ -36,7 +36,7 @@ criteria:
   walkscore_min: 0           # Walk Score minimum (0 = disabled until API key is active)
   dom_outlier_multiplier: 2.0  # flag if DOM > 2x market average
   max_hoa_fee: 0             # monthly HOA fee limit in USD (0 = no HOA allowed)
-  min_cap_rate: 0.04         # 4% minimum cap rate hard filter
+  min_cap_rate: 0.02         # 2% minimum cap rate — realistic floor for Seattle market
   preferred_home_types:      # null = no filter; list to restrict by type
     - "Single Family"
   allowed_cities:            # null = no filter; city name must appear in address
