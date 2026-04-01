@@ -206,6 +206,43 @@ def _render_appreciation(deal: DealNarrative) -> str:
 </div>"""
 
 
+def _walk_score_meta(score: int) -> tuple[str, str]:
+    """Return (label, hex_color) for a Walk Score value."""
+    if score >= 90:
+        return "Walker's Paradise", "#16a34a"
+    if score >= 70:
+        return "Very Walkable", "#65a30d"
+    if score >= 50:
+        return "Somewhat Walkable", "#ca8a04"
+    if score >= 25:
+        return "Car-Dependent", "#ea580c"
+    return "Almost No Errands", "#dc2626"
+
+
+def _render_walk_score_metric(deal: DealNarrative) -> str:
+    if deal.walk_score is None:
+        addr_enc = quote(deal.address, safe="")
+        return (
+            f'<div class="metric">'
+            f'<div class="metric-label">Walk Score</div>'
+            f'<div class="metric-value metric-value--link">'
+            f'<a href="https://www.walkscore.com/score/{addr_enc}" target="_blank" rel="noopener">Look up →</a>'
+            f'</div></div>'
+        )
+    label, color = _walk_score_meta(deal.walk_score)
+    bar_pct = deal.walk_score
+    return (
+        f'<div class="metric metric--walkscore">'
+        f'<div class="metric-label">Walk Score</div>'
+        f'<div class="metric-value" style="color:{color}">{deal.walk_score}'
+        f'<span class="walkscore-label"> {label}</span></div>'
+        f'<div class="walkscore-bar">'
+        f'<div class="walkscore-bar__fill" style="width:{bar_pct}%;background:{color}"></div>'
+        f'</div>'
+        f'</div>'
+    )
+
+
 _SOLAR_SCORE_COLORS = {1: "#94a3b8", 2: "#64748b", 3: "#f59e0b", 4: "#3b82f6", 5: "#16a34a"}
 _SOLAR_SCORE_LABELS = {1: "Low", 2: "Below avg", 3: "Average", 4: "Good", 5: "Excellent"}
 
@@ -286,7 +323,7 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
         <div class="metric-value js-cashflow {cf_class}">{_fmt_cashflow(deal.monthly_cashflow)}</div>
       </div>
       {_render_assessed(deal)}
-      {f'<div class="metric"><div class="metric-label">Walk Score</div><div class="metric-value">{deal.walk_score}</div></div>' if deal.walk_score is not None else f'<div class="metric"><div class="metric-label">Walk Score</div><div class="metric-value metric-value--link"><a href="https://www.walkscore.com/score/{quote(deal.address, safe="")}" target="_blank" rel="noopener">Look up →</a></div></div>'}
+      {_render_walk_score_metric(deal)}
       {_render_solar_metric(deal)}
 
       {f'<div class="metric"><div class="metric-label">Flood Zone</div><div class="metric-value">{deal.flood_zone}</div></div>' if deal.flood_zone else ""}
@@ -477,6 +514,15 @@ body {{
 .solar-label {{ font-size: 0.7rem; font-weight: 500; color: #64748b; }}
 .metric-value--link a {{ color: #2563eb; text-decoration: none; font-size: 0.85rem; }}
 .metric-value--link a:hover {{ text-decoration: underline; }}
+.walkscore-label {{ font-size: 0.65rem; font-weight: 500; color: #64748b; }}
+.metric--walkscore {{ grid-column: span 2; }}
+.walkscore-bar {{
+  height: 4px; background: #e2e8f0; border-radius: 99px;
+  margin-top: 0.35rem; overflow: hidden;
+}}
+.walkscore-bar__fill {{
+  height: 100%; border-radius: 99px; transition: width 0.3s;
+}}
 .metric--assessed {{ grid-column: span 2; }}
 .assessed-breakdown {{
   display: flex; gap: 0.75rem; margin-top: 0.3rem; flex-wrap: wrap;
