@@ -1,23 +1,29 @@
 # Real Estate Deal Scout
 
-An agentic pipeline that surfaces high-conviction real estate investment opportunities. It fetches listings, screens them against your criteria, enriches with neighborhood and school data, runs financial analysis, flags risks, and uses Claude to rank and narrate the top deals.
+An agentic pipeline that surfaces high-conviction real estate investment opportunities. Describe what you're looking for in plain English, or configure your criteria in YAML — the pipeline fetches listings, screens them, enriches with neighborhood data, runs personalized financial analysis, flags risks, and uses Claude to rank and narrate the top deals.
 
 ```
 fetch → screen → enrich → analyze → flag risks → rank + narrate
 ```
 
+**Vision:** Evolving from a personal CLI tool into a multi-user real estate investment agent — any user describes their financial situation and goals and gets a personalized ranked shortlist with AI narratives computed for *their* specific numbers.
+
 ## Features
 
-- **Screening** — filters by price, beds, days on market, HOA fee, home type, walk score, and cap rate
-- **Financial analysis** — cap rate, cash-on-cash return, monthly cash flow, NOI, mortgage payment
-- **Neighborhood enrichment** — Walk Score, HUD Fair Market Rents (auto-detected by ZIP)
-- **School data** — nearby schools with NCES proficiency scores and distance
-- **Zoning analysis** — ADU/DADU eligibility, HB 1110 duplex rights, subdivision potential
-- **Appreciation signals** — price-to-rent ratio, land value %, assessment ratio, renovation candidate flag
+- **Conversational intake** — `--chat` mode: describe your criteria in plain English; Claude extracts your investment config
+- **Screening** — filters by price, beds, days on market, HOA fee, home type, walk score, cap rate, and city
+- **Financial analysis** — cap rate, cash-on-cash return, monthly cash flow, NOI, mortgage payment (all personalized to your down payment and rate)
+- **HUD Fair Market Rents** — auto-detected by ZIP code via USPS crosswalk; 1.0× multiplier validated against Zillow (Apr 2026)
+- **Walk Score** — color-coded walkability display; fallback link when API key is not set
+- **School data** — nearby schools with NCES proficiency scores and walking distance
+- **Solar potential** — NREL GHI solar resource data (peak sun hours/day), cached per location
+- **KC Assessor enrichment** — zoning code, tax assessed value (land + improvement)
+- **Zoning analysis** — ADU/DADU eligibility, WA HB 1110 duplex rights, subdivision potential, development score 1–5
+- **Appreciation signals** — price-to-rent ratio (GRM), land value %, assessment ratio, renovation candidate flag
 - **Risk flagging** — FEMA flood zones, DOM outliers, HOA exposure, low cap rate
 - **Claude-powered narration** — ranked shortlist with a written investment thesis per deal
-- **Multiple rankers** — Claude API, Ollama (local), or mock (no API key needed)
-- **HTML report** — interactive output with financials, map pins, and school data
+- **Multiple rankers** — Claude API, Ollama (local LLM), or mock (fully offline)
+- **Interactive HTML report** — live financial sliders, Leaflet map pins, school data, solar, Walk Score
 
 ## Setup
 
@@ -27,33 +33,28 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-Copy `.env.example` to `.env` and add your keys (optional — mock/Ollama modes work without them):
+Copy `.env.example` to `.env` and add your keys:
 
 ```bash
-ANTHROPIC_API_KEY=your-key-here   # for ranker: claude
+ANTHROPIC_API_KEY=your-key-here   # required for --chat mode and ranker: claude
+HUD_API_KEY=your-key-here         # free at huduser.gov — required for rent estimates
+NREL_API_KEY=your-key-here        # free at developer.nrel.gov — required for solar data
 WALKSCORE_API_KEY=your-key-here   # optional, free at walkscore.com
-HUD_API_KEY=your-key-here         # free at huduser.gov
 ```
+
+Mock and Ollama modes work without `ANTHROPIC_API_KEY`. HUD and NREL keys are free.
 
 ## Usage
 
-**Run with Ollama (default, no API key needed):**
+**Chat mode — describe your criteria in plain English:**
 
 ```bash
-python scout.py
+python scout.py --chat
 ```
 
-**Run with Claude (requires `ANTHROPIC_API_KEY`):**
+Claude will ask what you're looking for, extract your criteria (budget, cities, beds, down payment, etc.), confirm back, then run the full pipeline.
 
-Set `ranker: claude` in `config.yaml`, then:
-
-```bash
-python scout.py
-```
-
-**Run in mock mode (fully offline):**
-
-Set `ranker: mock` in `config.yaml`, then:
+**Standard run (criteria from config.yaml):**
 
 ```bash
 python scout.py
@@ -62,14 +63,18 @@ python scout.py
 **Override market or shortlist size:**
 
 ```bash
-python scout.py --market "Denver, CO" --max-shortlist 3
+python scout.py --market "Portland, OR" --max-shortlist 10
 ```
 
-**Re-run narration from saved analyzed data:**
+**Re-run narration from saved analyzed data (skips slow enrichment):**
 
 ```bash
 python scout.py --from-analyzed outputs/20260322-123456_analyzed.json
 ```
+
+**Run fully offline (mock ranker, no API keys needed):**
+
+Set `ranker: mock` in `config.yaml`, then `python scout.py`.
 
 ## Configuration
 
@@ -78,17 +83,25 @@ Edit `config.yaml` to tune your investment criteria:
 ```yaml
 fetch:
   data_source: csv             # "fixtures" | "csv" | "redfin"
-  csv_path: data/redfin.csv
+  csv_paths:                   # combine multiple Redfin CSV exports
+    - data/redfin_2026-03-27.csv
+
+enrich:
+  hud_rent_multiplier: 1.0    # validated against Zillow Apr 2026 for Seattle
 
 criteria:
   max_price: 2250000
   min_beds: 3
   max_dom: 9999
   target_cap_rate: 0.05
-  walkscore_min: 50
+  min_cap_rate: 0.02           # realistic floor for Seattle market
   max_hoa_fee: 0               # 0 = no HOA allowed
   preferred_home_types:
     - "Single Family"
+  allowed_cities:              # ~20-mile radius; null = no filter
+    - "Seattle"
+    - "Bellevue"
+    - "Kirkland"
 
 financial_assumptions:
   down_payment_pct: 0.25
@@ -98,7 +111,7 @@ financial_assumptions:
   management_fee_pct: 0.10
 
 output:
-  max_shortlist: 5
+  max_shortlist: 15
   market: "Seattle, WA"
   ranker: ollama               # "mock" | "ollama" | "claude"
   ollama_model: llama3.1:8b
@@ -109,20 +122,22 @@ output:
 | Stage | Input | Output |
 |-------|-------|--------|
 | Fetch | config | `list[RawListing]` |
-| Screen | listings + criteria | filtered listings |
-| Enrich | listings | + Walk Score, HUD rent estimate |
-| Analyze | enriched listings | cap rate, CoC, cash flow, zoning, appreciation |
-| Flag risks | analyzed listings | flood zone, DOM, HOA, cap rate flags |
-| Rank + narrate | flagged listings | `Shortlist` with narratives |
+| Screen | listings + criteria | filtered listings (price, beds, DOM, HOA, city, home type) |
+| Enrich | listings | + HUD rent, Walk Score, schools, solar GHI, KC Assessor data |
+| Analyze | enriched listings | cap rate, CoC, cash flow, zoning potential, appreciation signals |
+| Flag risks | analyzed listings | flood zone, DOM outliers, HOA, cap rate flags |
+| Rank + narrate | flagged listings | `Shortlist` with AI-written investment narratives |
 
 ## Financial Formulas
 
-- **Cap rate** = NOI / purchase price
+- **Cap rate** = NOI / purchase price (financing-independent)
 - **NOI** = effective rent − management − maintenance − insurance − property tax
 - **Effective rent** = gross rent × (1 − vacancy rate)
 - **CoC return** = annual cash flow / total cash invested
 - **Monthly cash flow** = effective rent − mortgage − monthly expenses
 - **Total cash invested** = down payment + closing costs
+
+Seattle market context: SFH cap rates typically run 2–4%. Negative cashflow is common — most Seattle investment thesis is appreciation + ADU/zoning upside.
 
 ## Running Tests
 
@@ -130,7 +145,7 @@ output:
 pytest
 ```
 
-189 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, and full pipeline integration.
+217 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, conversational intake, and full pipeline integration.
 
 ## Project Structure
 
@@ -138,29 +153,40 @@ pytest
 .
 ├── config.yaml              # investment criteria and assumptions
 ├── pipeline.py              # main orchestrator
-├── scout.py                 # CLI entry point
-├── fixtures/
-│   └── listings.json        # sample Seattle WA listings (fixture data)
+├── scout.py                 # CLI entry point (--chat, --from-analyzed, --market)
 ├── data/
-│   └── redfin.csv           # Redfin CSV export (real listings)
-├── tools/
-│   ├── models.py            # Pydantic models for all pipeline I/O
-│   ├── fetch.py             # listing loader (fixtures, CSV, Redfin API)
-│   ├── screen.py            # screening logic
-│   ├── enrich.py            # Walk Score + HUD rent enrichment
-│   ├── analyze.py           # financial calculations
-│   ├── risks.py             # risk flagging
-│   ├── zoning_potential.py  # ADU/DADU/HB1110 zoning analysis
-│   ├── appreciation.py      # appreciation signal scoring
-│   ├── schools.py           # nearby school lookup (NCES data)
-│   ├── assessor.py          # tax assessment parsing
-│   ├── crosswalk.py         # USPS ZIP → county FIPS crosswalk
-│   ├── report.py            # HTML report generator
-│   ├── mock_ranker.py       # heuristic ranker (no API key required)
-│   └── ollama_ranker.py     # local LLM ranker
-└── tests/                   # pytest test suite
+│   └── redfin_*.csv         # Redfin CSV exports (real Seattle listings)
+├── fixtures/
+│   └── listings.json        # sample listings (fixture / offline mode)
+├── outputs/                 # pipeline run outputs (JSON + HTML reports)
+└── tools/
+    ├── models.py            # Pydantic models for all pipeline I/O
+    ├── fetch.py             # listing loader (fixtures, CSV, Redfin API)
+    ├── screen.py            # screening logic (price, beds, DOM, HOA, city)
+    ├── enrich.py            # HUD rent, Walk Score, schools, solar, assessor
+    ├── analyze.py           # financial calculations
+    ├── risks.py             # risk flagging
+    ├── zoning_potential.py  # ADU/DADU/HB1110 zoning analysis
+    ├── appreciation.py      # appreciation signal scoring
+    ├── schools.py           # nearby school lookup (NCES EDGE + Urban Institute)
+    ├── solar.py             # NREL solar resource API (GHI, cached)
+    ├── assessor.py          # KC Assessor tax data
+    ├── crosswalk.py         # USPS ZIP → county FIPS crosswalk (HUD + Census)
+    ├── chat_intake.py       # conversational criteria extraction (Claude tool-use)
+    ├── report.py            # interactive HTML report generator
+    ├── mock_ranker.py       # heuristic ranker (no API key required)
+    └── ollama_ranker.py     # local LLM ranker
 ```
 
 ## Roadmap
 
-See [TODOS.md](TODOS.md) for planned improvements.
+See [TODOS.md](TODOS.md) for the full platform roadmap.
+
+**Current focus (Phase 1):**
+- Live listings API evaluation (Rentcast / ATTOM / RapidAPI) — unblocks multi-market
+- FastAPI wrapper to serve the pipeline as a web endpoint
+
+**Later phases:**
+- User accounts + saved searches + email alerts
+- Multi-market support beyond Seattle
+- Feedback loop (thumbs up/down → improves rankings)
