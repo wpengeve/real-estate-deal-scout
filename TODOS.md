@@ -1,13 +1,13 @@
 # TODOS
 
-Last updated: 2026-04-01
+Last updated: 2026-04-02
 
 ---
 
 ## Done ✓
 
 - **Real data source** — Redfin CSV integration, 9 CSVs loaded, deduplicated by address
-- **HUD Fair Market Rents** — ZIP→county crosswalk, 1.25× multiplier for Seattle market
+- **HUD Fair Market Rents** — ZIP→county crosswalk, 1.0× multiplier (validated against Zillow Apr 2026)
 - **KC Assessor enrichment** — zoning code, tax assessed value (land + improvement)
 - **Zoning potential** — ADU/DADU eligibility, HB 1110 duplex rights, development score 1–5
 - **Appreciation signals** — price-to-rent (GRM), assessment ratio, land value %, renovation flag
@@ -17,6 +17,7 @@ Last updated: 2026-04-01
 - **HTML report** — Leaflet maps, live financial sliders, Show top N filter, schools, solar
 - **City filter** — `allowed_cities` in screening removes far-out listings (Cle Elum, Puyallup)
 - **Dashboard polish** — Walk Score link, CoC color on load, sun hrs/day display, DOM grammar
+- **Chat intake** — `--chat` CLI flag: Claude tool-use extracts InvestmentConfig from natural language
 
 ---
 
@@ -28,6 +29,7 @@ Last updated: 2026-04-01
 
 **Why:** Ollama (llama3.1:8b) ranks poorly — a 6.35% cap rate deal ranked #9 instead of #1.
 Claude produces accurate, data-grounded narratives and ranks by actual investment merit.
+Also needed for `--chat` mode (chat intake uses Claude for config extraction).
 
 **Effort:** XS — just add the key.
 
@@ -44,18 +46,6 @@ Once key arrives, re-enable `walkscore_min` in config (currently set to 0).
 
 ---
 
-### P2 — Validate rent estimates
-
-**What:** Spot-check 5–10 listings against Zillow Rent Zestimate or Rentometer to see
-how accurate the HUD × 1.25 multiplier is for Seattle.
-
-**Why:** All cashflows are negative right now — if HUD rents are 20–30% below market,
-tuning the multiplier to 1.4–1.5 would give a more realistic picture.
-
-**Effort:** S — manual check + update `hud_rent_multiplier` in config.
-
----
-
 ### P3 — Tighter Redfin CSVs
 
 **What:** Current 9 CSVs were downloaded with a wide geographic scope and included
@@ -68,7 +58,50 @@ but fresh downloads scoped to Seattle + close Eastside would improve data qualit
 
 ---
 
+## Platform Roadmap (CEO Review 2026-04-02)
+
+**Vision:** Scale from personal CLI tool → multi-user real estate investment agent.
+Any user describes their financial situation and goals; the platform finds and
+explains the best-matching investment deals for *their* specific profile.
+
+**Core moat:** Personalized financial analysis — every cap rate, CoC, and cashflow
+is computed for *your* down payment and rate, then explained by AI.
+
+### Phase 1 — "Anyone can use it" (current focus)
+
+**Goal:** Share a URL. Someone who isn't you uses it.
+
+- [ ] **Live listings API** — evaluate Rentcast / ATTOM / RapidAPI for multi-market
+      live data. This is the single biggest unknown. Nothing else in Phase 2 works
+      without it. Target: pick an API this week.
+- [ ] **FastAPI wrapper** — POST /run endpoint; returns report URL (S3 or Render blob)
+- [ ] ~~Chat intake~~ ✓ done — `--chat` flag with Claude tool-use extraction
+
+### Phase 2 — "Multi-market + accounts"
+
+- [ ] **PostgreSQL schema** — users, saved_searches, report_runs
+- [ ] **Auth** — email + magic link (avoid OAuth complexity for MVP)
+- [ ] **Multi-market enrichment** — handle non-KC markets gracefully
+      (HUD rent and schools already work nationally; KC Assessor is Seattle-only)
+- [ ] **Shareable report URLs** — 30-day TTL, stored in DB
+
+### Phase 3 — "Retention + alerts"
+
+- [ ] **Background workers** — re-run saved searches daily (RQ or Celery)
+- [ ] **Email alerts** — new listings match saved criteria → digest (SendGrid/Resend)
+- [ ] **Feedback loop** — thumbs up/down on rankings → stored for future ranking context
+
+### NOT building (explicitly out of scope)
+
+- Mobile app (web is sufficient)
+- MLS integration (requires real estate license)
+- Agent marketplace / lead gen (different business)
+- Automated offer submission (regulatory minefield)
+- React frontend (Jinja2 + HTMX handles the chat UX)
+
+---
+
 ## Blocked / Deferred
 
-- **Redfin live API** — broken for Seattle (returns 0 or wrong region). CSV export is the workaround.
-- **GreatSchools API** — limited free tier, no good free alternative for school district data. `school_district` field currently null for real listings.
+- **Redfin live API** — broken for Seattle (returns 0 or wrong region). CSV export is the workaround until a live API is chosen.
+- **GreatSchools API** — limited free tier, no good free alternative. `school_district` field currently null for real listings.

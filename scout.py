@@ -26,6 +26,7 @@ from rich.table import Table
 from rich import box
 
 from pipeline import run, run_from_analyzed
+from tools.chat_intake import run_chat_intake
 from tools.models import InvestmentConfig, Shortlist
 
 console = Console()
@@ -189,6 +190,11 @@ def main() -> None:
         metavar="FILE",
         help="Skip pipeline, re-run Claude narration on a saved analyzed JSON file",
     )
+    parser.add_argument(
+        "--chat",
+        action="store_true",
+        help="Describe your investment criteria in plain English (requires ANTHROPIC_API_KEY)",
+    )
     args = parser.parse_args()
 
     # --from-analyzed: re-run ranking on a previously saved analyzed JSON file
@@ -221,6 +227,13 @@ def main() -> None:
             field = ".".join(str(loc) for loc in err["loc"])
             console.print(f"  [red]{field}:[/red] {err['msg']}")
         sys.exit(1)
+
+    if args.chat:
+        updated = run_chat_intake(config)
+        if updated is None:
+            console.print("[yellow]Chat intake cancelled.[/yellow]")
+            sys.exit(0)
+        config = updated
 
     console.print(f"\n[bold]Real Estate Deal Scout[/bold] · {config.output.market}\n")
 
