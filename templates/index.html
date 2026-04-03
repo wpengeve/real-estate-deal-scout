@@ -33,6 +33,24 @@
     header { padding: 14px 20px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
     header h1 { font-size: 16px; font-weight: 600; }
     .badge { font-size: 11px; background: var(--green-light); color: var(--green); border: 1px solid var(--green-border); border-radius: 99px; padding: 2px 8px; }
+    .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .header-right a { font-size: 13px; color: var(--muted); text-decoration: none; }
+    .header-right a:hover { color: var(--text); }
+    .user-email { font-size: 13px; color: var(--muted); }
+    .btn-link { background: none; border: none; font-size: 13px; color: var(--blue); cursor: pointer; padding: 0; font-family: inherit; }
+    .btn-link:hover { text-decoration: underline; }
+
+    /* ── Auth modal ── */
+    #auth-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200; align-items: center; justify-content: center; }
+    #auth-modal.active { display: flex; }
+    .auth-card { background: #fff; border-radius: 16px; padding: 36px; max-width: 360px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
+    .auth-card h2 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+    .auth-card p { font-size: 14px; color: var(--muted); margin-bottom: 20px; }
+    .auth-card input[type=email] { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; font-family: inherit; margin-bottom: 12px; outline: none; }
+    .auth-card input[type=email]:focus { border-color: #93c5fd; }
+    .auth-cancel { margin-top: 12px; text-align: center; }
+    .auth-success { display: none; text-align: center; }
+    .auth-success p { color: var(--green); font-weight: 500; }
 
     /* ── Tabs ── */
     .tabs { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
@@ -116,6 +134,17 @@
     <span style="font-size:20px">🏠</span>
     <h1>Real Estate Deal Scout</h1>
     <span class="badge">AI-powered</span>
+    <div class="header-right">
+      {% if user_email %}
+        <span class="user-email">{{ user_email }}</span>
+        <a href="/history">History</a>
+        <form method="post" action="/api/logout" style="margin:0">
+          <button type="submit" class="btn-link">Sign out</button>
+        </form>
+      {% else %}
+        <button class="btn-link" onclick="openAuthModal()">Sign in</button>
+      {% endif %}
+    </div>
   </header>
 
   <div class="tabs">
@@ -233,6 +262,23 @@ Sammamish</textarea>
     </div>
   </div>
 
+</div>
+
+<!-- ── Auth modal ── -->
+<div id="auth-modal">
+  <div class="auth-card">
+    <div id="auth-form-wrap">
+      <h2>Sign in</h2>
+      <p>Enter your email and we'll send you a magic link to sign in (check the server console during dev).</p>
+      <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email">
+      <button class="btn-primary btn-full" onclick="requestMagicLink()">Send magic link</button>
+      <div class="auth-cancel"><button class="btn-link" onclick="closeAuthModal()">Cancel</button></div>
+    </div>
+    <div class="auth-success" id="auth-success-wrap">
+      <p id="auth-success-msg"></p>
+      <div style="margin-top:16px"><button class="btn-link" onclick="closeAuthModal()">Close</button></div>
+    </div>
+  </div>
 </div>
 
 <!-- ── Progress overlay ── -->
@@ -427,6 +473,35 @@ Sammamish</textarea>
   }
 
   inputEl.focus();
+
+  // ── Auth modal ────────────────────────────────────────────────────────────
+  const authModal = document.getElementById('auth-modal');
+  function openAuthModal() { authModal.classList.add('active'); document.getElementById('auth-email').focus(); }
+  function closeAuthModal() {
+    authModal.classList.remove('active');
+    document.getElementById('auth-form-wrap').style.display = '';
+    document.getElementById('auth-success-wrap').style.display = 'none';
+    document.getElementById('auth-email').value = '';
+  }
+  authModal.addEventListener('click', e => { if (e.target === authModal) closeAuthModal(); });
+
+  async function requestMagicLink() {
+    const email = document.getElementById('auth-email').value.trim();
+    if (!email || !email.includes('@')) { alert('Please enter a valid email.'); return; }
+    try {
+      const res = await fetch('/api/auth/request', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.detail || 'Error sending link.'); return; }
+      document.getElementById('auth-form-wrap').style.display = 'none';
+      document.getElementById('auth-success-wrap').style.display = 'block';
+      document.getElementById('auth-success-msg').textContent = data.message || 'Magic link sent!';
+    } catch {
+      alert('Could not reach the server.');
+    }
+  }
 </script>
 </body>
 </html>
