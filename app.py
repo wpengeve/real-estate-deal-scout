@@ -57,7 +57,7 @@ def _load_base_config() -> InvestmentConfig:
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 class ChatRequest(BaseModel):
@@ -94,6 +94,22 @@ async def start_run(req: RunRequest):
     if config is None:
         raise HTTPException(status_code=400, detail="Could not build config from criteria.")
 
+    run_id = uuid.uuid4().hex[:8]
+    _runs[run_id] = {"status": "running", "progress": "Starting pipeline..."}
+    asyncio.create_task(_run_pipeline_bg(run_id, config))
+    return {"run_id": run_id}
+
+
+class FormRunRequest(BaseModel):
+    session_id: str
+    criteria: dict
+
+
+@app.post("/api/run-form")
+async def start_run_form(req: FormRunRequest):
+    """Start the pipeline from manually entered form criteria (no Claude needed)."""
+    from tools.chat_intake import _build_config
+    config = _build_config(req.criteria, _load_base_config())
     run_id = uuid.uuid4().hex[:8]
     _runs[run_id] = {"status": "running", "progress": "Starting pipeline..."}
     asyncio.create_task(_run_pipeline_bg(run_id, config))
