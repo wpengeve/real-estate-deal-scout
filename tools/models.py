@@ -33,6 +33,7 @@ class EnrichConfig(BaseModel):
 class ScreeningCriteria(BaseModel):
     max_price: float
     min_beds: int
+    min_baths: float | None = None            # e.g. 2.0; None = no filter
     max_dom: int
     target_cap_rate: float = 0.05
     walkscore_min: int = 50

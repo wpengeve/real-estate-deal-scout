@@ -41,6 +41,14 @@ _TOOL_DEF: dict = {
                 "type": "integer",
                 "description": "Minimum number of bedrooms",
             },
+            "min_baths": {
+                "type": "number",
+                "description": (
+                    "Minimum number of bathrooms (e.g. 2 or 2.5). Use 2.0 when the user "
+                    "asks for a primary/master suite with an en-suite bathroom, or says "
+                    "'at least 2 baths'. Omit if not mentioned."
+                ),
+            },
             "allowed_cities": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -248,6 +256,7 @@ def _build_config(extracted: dict, base: InvestmentConfig) -> InvestmentConfig:
             target_cap_rate=extracted.get("target_cap_rate", base.criteria.target_cap_rate),
             walkscore_min=base.criteria.walkscore_min,
             dom_outlier_multiplier=base.criteria.dom_outlier_multiplier,
+            min_baths=extracted.get("min_baths"),
             max_hoa_fee=extracted.get("max_hoa_fee"),
             min_cap_rate=extracted.get("min_cap_rate"),
             preferred_home_types=extracted.get("preferred_home_types"),

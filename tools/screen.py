@@ -24,6 +24,12 @@ def screen_listing(listing: RawListing, criteria: ScreeningCriteria) -> ScreenRe
         return ScreenResult(listing=listing, passed=False, reason="price_too_high")
     if listing.beds < criteria.min_beds:
         return ScreenResult(listing=listing, passed=False, reason="beds_below_min")
+    if (
+        criteria.min_baths is not None
+        and listing.baths is not None
+        and listing.baths < criteria.min_baths
+    ):
+        return ScreenResult(listing=listing, passed=False, reason="baths_below_min")
     if listing.days_on_market > criteria.max_dom:
         return ScreenResult(listing=listing, passed=False, reason="dom_exceeded")
 
