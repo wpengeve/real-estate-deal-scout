@@ -109,6 +109,7 @@ def _map_div(deal: DealNarrative, idx: int) -> str:
     maxZoom: 19
   }}).addTo(m);
   L.marker([{lat}, {lng}]).addTo(m);
+  setTimeout(function() {{ m.invalidateSize(); }}, 0);
   document.getElementById('{map_id}').addEventListener('click', function() {{
     window.open('{gmaps}', '_blank');
   }});
@@ -427,21 +428,22 @@ body {{
 /* ── Map pane ── */
 .card-map {{
   position: relative;
-  min-height: 200px;
+  height: 220px;
   background: #e2e8f0;
   cursor: pointer;
 }}
 .map-container {{
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  min-height: 200px;
 }}
 .map-placeholder {{
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  min-height: 200px;
+  position: absolute;
+  inset: 0;
 }}
 .map-link {{
   color: #2563eb;
@@ -650,7 +652,7 @@ body {{
 /* ── Responsive ── */
 @media (max-width: 700px) {{
   .card {{ grid-template-columns: 1fr; }}
-  .card-map {{ min-height: 180px; }}
+  .card-map {{ height: 180px; }}
   .map-container {{ min-height: 180px; }}
   .metrics-grid {{ grid-template-columns: 1fr 1fr; }}
   .main {{ padding: 1rem; }}

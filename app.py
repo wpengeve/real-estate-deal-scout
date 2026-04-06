@@ -186,11 +186,20 @@ async def chat(req: ChatRequest):
     if not os.getenv("ANTHROPIC_API_KEY"):
         raise HTTPException(
             status_code=503,
-            detail="ANTHROPIC_API_KEY is not configured on the server.",
+            detail="Chat requires an Anthropic API key. Use the Manual Setup tab to run a scan without one.",
         )
+    import anthropic as _anthropic
     if req.session_id not in _chat_sessions:
         _chat_sessions[req.session_id] = ChatSession()
-    return await _chat_sessions[req.session_id].send(req.message)
+    try:
+        return await _chat_sessions[req.session_id].send(req.message)
+    except _anthropic.AuthenticationError:
+        raise HTTPException(
+            status_code=503,
+            detail="Anthropic API key is invalid. Check your ANTHROPIC_API_KEY and restart the server.",
+        )
+    except _anthropic.APIError as e:
+        raise HTTPException(status_code=502, detail=f"Anthropic API error: {e}")
 
 
 # ── Pipeline runs ─────────────────────────────────────────────────────────────
