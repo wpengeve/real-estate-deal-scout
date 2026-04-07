@@ -244,6 +244,37 @@ def _render_walk_score_metric(deal: DealNarrative) -> str:
     )
 
 
+def _render_transit_scores(deal: DealNarrative) -> str:
+    """Render Bike Score and Transit Score as a compact pair (only if at least one is present)."""
+    if deal.bike_score is None and deal.transit_score is None:
+        return ""
+
+    def _score_block(label: str, score: int | None, icon: str) -> str:
+        if score is None:
+            return f'<div class="score-pill score-pill--na">{icon} {label} —</div>'
+        if score >= 70:
+            color = "#16a34a"
+        elif score >= 50:
+            color = "#ca8a04"
+        else:
+            color = "#dc2626"
+        return (
+            f'<div class="score-pill" style="color:{color}">'
+            f'{icon} {label} <strong>{score}</strong>'
+            f'<div class="score-bar"><div class="score-bar__fill" style="width:{score}%;background:{color}"></div></div>'
+            f'</div>'
+        )
+
+    bike = _score_block("Bike", deal.bike_score, "🚲")
+    transit = _score_block("Transit", deal.transit_score, "🚌")
+    return (
+        f'<div class="metric metric--transit-scores">'
+        f'<div class="metric-label">Bike &amp; Transit</div>'
+        f'<div class="transit-score-row">{bike}{transit}</div>'
+        f'</div>'
+    )
+
+
 _SOLAR_SCORE_COLORS = {1: "#94a3b8", 2: "#64748b", 3: "#f59e0b", 4: "#3b82f6", 5: "#16a34a"}
 _SOLAR_SCORE_LABELS = {1: "Low", 2: "Below avg", 3: "Average", 4: "Good", 5: "Excellent"}
 
@@ -325,6 +356,7 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
       </div>
       {_render_assessed(deal)}
       {_render_walk_score_metric(deal)}
+      {_render_transit_scores(deal)}
       {_render_solar_metric(deal)}
 
       {f'<div class="metric"><div class="metric-label">Flood Zone</div><div class="metric-value">{deal.flood_zone}</div></div>' if deal.flood_zone else ""}
@@ -525,6 +557,18 @@ body {{
 .walkscore-bar__fill {{
   height: 100%; border-radius: 99px; transition: width 0.3s;
 }}
+.metric--transit-scores {{ grid-column: span 2; }}
+.transit-score-row {{ display: flex; gap: 0.75rem; margin-top: 0.35rem; flex-wrap: wrap; }}
+.score-pill {{
+  flex: 1; min-width: 100px;
+  font-size: 0.78rem; font-weight: 500;
+}}
+.score-pill--na {{ color: #94a3b8; }}
+.score-bar {{
+  height: 3px; background: #e2e8f0; border-radius: 99px;
+  margin-top: 0.25rem; overflow: hidden;
+}}
+.score-bar__fill {{ height: 100%; border-radius: 99px; }}
 .metric--assessed {{ grid-column: span 2; }}
 .assessed-breakdown {{
   display: flex; gap: 0.75rem; margin-top: 0.3rem; flex-wrap: wrap;

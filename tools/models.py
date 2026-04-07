@@ -243,6 +243,8 @@ class DealNarrative(BaseModel):
     monthly_mortgage: float | None = None      # baseline mortgage — used for JS recalculation
     estimated_monthly_rent: float | None = None  # used for JS recalculation
     walk_score: int | None = None
+    bike_score: int | None = None
+    transit_score: int | None = None
     flood_zone: str | None = None
     tax_assessed_value: float | None = None
     tax_assessed_land: float | None = None

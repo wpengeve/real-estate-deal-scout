@@ -110,6 +110,8 @@ def mock_rank_and_narrate(
                 monthly_mortgage=f.financials.monthly_mortgage,
                 estimated_monthly_rent=f.estimated_monthly_rent,
                 walk_score=f.walk_score,
+                bike_score=f.bike_score,
+                transit_score=f.transit_score,
                 flood_zone=f.risks.flood_zone,
                 tax_assessed_value=f.listing.tax_assessed_value,
                 tax_assessed_land=f.listing.tax_assessed_land,

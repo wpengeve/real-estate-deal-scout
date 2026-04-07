@@ -350,6 +350,8 @@ Properties with HIGH risk should be noted prominently in the narrative."""
         deal.year_built = f.listing.year_built
         deal.nearby_schools = f.listing.nearby_schools
         deal.solar_ghi_annual = f.listing.solar_ghi_annual
+        deal.bike_score = f.bike_score
+        deal.transit_score = f.transit_score
 
     return shortlist
 
