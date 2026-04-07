@@ -30,6 +30,17 @@ from tools.zoning_potential import assess as assess_zoning
 
 logger = logging.getLogger(__name__)
 
+_MIXIN_FIELDS = (
+    "has_primary_suite", "has_garage", "garage_spaces", "has_basement",
+    "basement_finished", "has_fireplace", "site_features", "lot_features",
+    "listing_remarks",
+)
+
+
+def _mixin(a: AnalyzedListing) -> dict:
+    return {f: getattr(a, f) for f in _MIXIN_FIELDS}
+
+
 _HIGH_RISK_ZONES = {"A", "AE", "AH", "AO", "AR", "A99", "V", "VE"}
 _FEMA_URL = (
     "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query"
@@ -108,6 +119,8 @@ def flag_risks(
     return FlaggedListing(
         listing=analyzed.listing,
         walk_score=analyzed.walk_score,
+        bike_score=analyzed.bike_score,
+        transit_score=analyzed.transit_score,
         estimated_monthly_rent=analyzed.estimated_monthly_rent,
         financials=analyzed.financials,
         risks=RiskResult(
@@ -117,6 +130,7 @@ def flag_risks(
         ),
         zoning_potential=zoning_potential,
         appreciation=appreciation,
+        **_mixin(analyzed),
     )
 
 

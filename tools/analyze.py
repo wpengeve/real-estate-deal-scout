@@ -65,6 +65,8 @@ def analyze_financials(
         return AnalyzedListing(
             listing=listing,
             walk_score=enrich_result.walk_score,
+            bike_score=enrich_result.bike_score,
+            transit_score=enrich_result.transit_score,
             estimated_monthly_rent=None,
             financials=FinancialResult(success=False, failure_reason="no_rent_data"),
             **_features(enrich_result),
@@ -75,6 +77,8 @@ def analyze_financials(
         return AnalyzedListing(
             listing=listing,
             walk_score=enrich_result.walk_score,
+            bike_score=enrich_result.bike_score,
+            transit_score=enrich_result.transit_score,
             estimated_monthly_rent=monthly_rent,
             financials=FinancialResult(success=False, failure_reason="invalid_price"),
             **_features(enrich_result),
@@ -121,6 +125,8 @@ def analyze_financials(
     return AnalyzedListing(
         listing=listing,
         walk_score=enrich_result.walk_score,
+        bike_score=enrich_result.bike_score,
+        transit_score=enrich_result.transit_score,
         estimated_monthly_rent=monthly_rent,
         financials=FinancialResult(
             success=True,

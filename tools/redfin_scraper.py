@@ -2,9 +2,12 @@
 Redfin listing page scraper — extracts structured features from the HTML.
 
 Parses the <li class="entryItem"> feature sections that Redfin renders
-server-side, plus the marketing remarks (listing description).
+server-side, the embedded walkScoreInfo JSON blob, and the marketing remarks.
 
 Fields extracted:
+    walk_score          int  | None  — Walk Score (0–100)
+    bike_score          int  | None  — Bike Score (0–100)
+    transit_score       int  | None  — Transit Score (0–100)
     has_primary_suite   bool | None  — listing contains a "Primary Bedroom" room type
     has_garage          bool | None  — attached or detached garage present
     garage_spaces       int  | None  — number of covered/garage spaces
@@ -40,6 +43,9 @@ class ListingFeatures:
     """Structured features extracted from a Redfin listing page."""
 
     __slots__ = (
+        "walk_score",
+        "bike_score",
+        "transit_score",
         "has_primary_suite",
         "has_garage",
         "garage_spaces",
@@ -52,6 +58,9 @@ class ListingFeatures:
     )
 
     def __init__(self) -> None:
+        self.walk_score: int | None = None
+        self.bike_score: int | None = None
+        self.transit_score: int | None = None
         self.has_primary_suite: bool | None = None
         self.has_garage: bool | None = None
         self.garage_spaces: int | None = None
@@ -82,9 +91,31 @@ def _entry_items(html: str) -> list[str]:
     ]
 
 
+def _parse_score(html: str, score_type: str) -> int | None:
+    """Extract Walk/Bike/Transit score from Redfin's embedded walkScoreInfo blob."""
+    m = re.search(
+        rf'{score_type}.{{0,30}}?value.{{0,10}}?([\d]+\.?[\d]*)',
+        html,
+    )
+    if m:
+        try:
+            return int(float(m.group(1)))
+        except ValueError:
+            pass
+    return None
+
+
 def parse(html: str) -> ListingFeatures:
     """Parse a Redfin listing HTML page into a ListingFeatures object."""
     f = ListingFeatures()
+
+    # ── Walk / Bike / Transit scores (embedded in walkScoreInfo JSON blob) ─────
+    if "walkScoreInfo" in html:
+        idx = html.find("walkScoreInfo")
+        chunk = html[idx:idx + 1500]
+        f.walk_score = _parse_score(chunk, "walkScore")
+        f.bike_score = _parse_score(chunk, "bikeScore")
+        f.transit_score = _parse_score(chunk, "transitScore")
 
     # ── Primary suite ──────────────────────────────────────────────────────────
     # Room type entries look like: "Room Type: Primary Bedroom"

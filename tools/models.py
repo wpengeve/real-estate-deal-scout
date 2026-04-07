@@ -114,6 +114,8 @@ class ScreenResult(BaseModel):
 class EnrichResult(BaseModel):
     listing: RawListing
     walk_score: int | None = None
+    bike_score: int | None = None
+    transit_score: int | None = None
     estimated_monthly_rent: float | None = None
     error: str | None = None
     # success is always True — partial enrichment (None fields) is acceptable
@@ -202,6 +204,8 @@ class _ListingFeaturesMixin(BaseModel):
 class AnalyzedListing(_ListingFeaturesMixin):
     listing: RawListing
     walk_score: int | None = None
+    bike_score: int | None = None
+    transit_score: int | None = None
     estimated_monthly_rent: float | None = None
     financials: FinancialResult
 
@@ -209,6 +213,8 @@ class AnalyzedListing(_ListingFeaturesMixin):
 class FlaggedListing(_ListingFeaturesMixin):
     listing: RawListing
     walk_score: int | None = None
+    bike_score: int | None = None
+    transit_score: int | None = None
     estimated_monthly_rent: float | None = None
     financials: FinancialResult
     risks: RiskResult

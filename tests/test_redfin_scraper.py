@@ -164,6 +164,46 @@ def test_remarks_none_when_missing():
     assert f.remarks is None
 
 
+# ── Walk / Bike / Transit scores ──────────────────────────────────────────────
+
+WALKSCORE_HTML = """
+walkScoreInfo{"walkScore":{"value":92},"bikeScore":{"value":75},"transitScore":{"value":68}}
+"""
+
+WALKSCORE_PARTIAL_HTML = """
+walkScoreInfo{"walkScore":{"value":45}}
+"""
+
+
+def test_walk_score_parsed():
+    f = parse(WALKSCORE_HTML)
+    assert f.walk_score == 92
+
+
+def test_bike_score_parsed():
+    f = parse(WALKSCORE_HTML)
+    assert f.bike_score == 75
+
+
+def test_transit_score_parsed():
+    f = parse(WALKSCORE_HTML)
+    assert f.transit_score == 68
+
+
+def test_walk_score_only_others_none():
+    f = parse(WALKSCORE_PARTIAL_HTML)
+    assert f.walk_score == 45
+    assert f.bike_score is None
+    assert f.transit_score is None
+
+
+def test_scores_none_when_no_walkscore_blob():
+    f = parse("<html>no walk score info here</html>")
+    assert f.walk_score is None
+    assert f.bike_score is None
+    assert f.transit_score is None
+
+
 # ── fetch_listing_features: URL guard ─────────────────────────────────────────
 
 @pytest.mark.asyncio

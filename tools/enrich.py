@@ -141,9 +141,14 @@ async def enrich_neighborhood(
         updated_listing = updated_listing.model_copy(update={"solar_ghi_annual": solar_ghi})
 
     lf = listing_features
+    # Prefer scraped walk score (from Redfin page) over Walk Score API result.
+    # Scraped scores are free and don't need a separate API key.
+    effective_walk_score = (lf.walk_score if lf and lf.walk_score is not None else walk_score)
     return EnrichResult(
         listing=updated_listing,
-        walk_score=walk_score,
+        walk_score=effective_walk_score,
+        bike_score=lf.bike_score if lf else None,
+        transit_score=lf.transit_score if lf else None,
         estimated_monthly_rent=rent,
         has_primary_suite=lf.has_primary_suite if lf else None,
         has_garage=lf.has_garage if lf else None,
