@@ -100,6 +100,18 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
             f"[dim]Financial analysis: {len(successful)}/{len(analyzed)} succeeded[/dim]"
         )
 
+        # Post-enrich primary suite filter (optional — requires scraping to have run)
+        if config.criteria.require_primary_suite:
+            before = len(analyzed)
+            analyzed = [
+                a for a in analyzed
+                if a.has_primary_suite is True
+                or a.has_primary_suite is None  # unknown = don't discard
+            ]
+            dropped = before - len(analyzed)
+            if dropped:
+                console.log(f"[dim]Primary suite filter: {dropped} without primary bedroom removed[/dim]")
+
         # Post-analysis cap rate filter (optional — set min_cap_rate in config.yaml)
         if config.criteria.min_cap_rate is not None:
             before = len(analyzed)

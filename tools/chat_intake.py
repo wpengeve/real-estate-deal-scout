@@ -101,6 +101,13 @@ _TOOL_DEF: dict = {
                     "0.02 is realistic. Use null if no filter."
                 ),
             },
+            "require_primary_suite": {
+                "type": "boolean",
+                "description": (
+                    "Set true when user asks for a master bedroom, primary suite, "
+                    "or en-suite bedroom. Filters out listings confirmed to lack one."
+                ),
+            },
             "max_shortlist": {
                 "type": "integer",
                 "description": "Number of top deals to show. Default: 15.",
@@ -257,6 +264,7 @@ def _build_config(extracted: dict, base: InvestmentConfig) -> InvestmentConfig:
             walkscore_min=base.criteria.walkscore_min,
             dom_outlier_multiplier=base.criteria.dom_outlier_multiplier,
             min_baths=extracted.get("min_baths"),
+            require_primary_suite=extracted.get("require_primary_suite", False),
             max_hoa_fee=extracted.get("max_hoa_fee"),
             min_cap_rate=extracted.get("min_cap_rate"),
             preferred_home_types=extracted.get("preferred_home_types"),

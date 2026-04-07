@@ -37,6 +37,16 @@ Cash-on-Cash Return:
 """
 from tools.models import AnalyzedListing, EnrichResult, FinancialAssumptions, FinancialResult
 
+_FEATURE_FIELDS = (
+    "has_primary_suite", "has_garage", "garage_spaces", "has_basement",
+    "basement_finished", "has_fireplace", "site_features", "lot_features",
+    "listing_remarks",
+)
+
+
+def _features(e: EnrichResult) -> dict:
+    return {f: getattr(e, f) for f in _FEATURE_FIELDS}
+
 
 def analyze_financials(
     enrich_result: EnrichResult,
@@ -56,10 +66,8 @@ def analyze_financials(
             listing=listing,
             walk_score=enrich_result.walk_score,
             estimated_monthly_rent=None,
-            financials=FinancialResult(
-                success=False,
-                failure_reason="no_rent_data",
-            ),
+            financials=FinancialResult(success=False, failure_reason="no_rent_data"),
+            **_features(enrich_result),
         )
 
     price = listing.price
@@ -68,10 +76,8 @@ def analyze_financials(
             listing=listing,
             walk_score=enrich_result.walk_score,
             estimated_monthly_rent=monthly_rent,
-            financials=FinancialResult(
-                success=False,
-                failure_reason="invalid_price",
-            ),
+            financials=FinancialResult(success=False, failure_reason="invalid_price"),
+            **_features(enrich_result),
         )
 
     a = assumptions
@@ -125,6 +131,7 @@ def analyze_financials(
             monthly_mortgage=monthly_mortgage,
             total_cash_invested=total_cash_invested,
         ),
+        **_features(enrich_result),
     )
 
 

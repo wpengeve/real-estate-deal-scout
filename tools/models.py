@@ -42,6 +42,7 @@ class ScreeningCriteria(BaseModel):
     min_cap_rate: float | None = None         # e.g. 0.04 = 4%; None = no filter
     preferred_home_types: list[str] | None = None  # None = no filter; e.g. ["Single Family"]
     allowed_cities: list[str] | None = None   # None = no filter; e.g. ["Seattle", "Bellevue"]
+    require_primary_suite: bool = False       # filter listings without a primary bedroom
 
 
 class FinancialAssumptions(BaseModel):
@@ -116,6 +117,16 @@ class EnrichResult(BaseModel):
     estimated_monthly_rent: float | None = None
     error: str | None = None
     # success is always True — partial enrichment (None fields) is acceptable
+    # ── Redfin listing page features ──────────────────────────────────────────
+    has_primary_suite: bool | None = None
+    has_garage: bool | None = None
+    garage_spaces: int | None = None
+    has_basement: bool | None = None
+    basement_finished: bool | None = None
+    has_fireplace: bool | None = None
+    site_features: list[str] = []
+    lot_features: list[str] = []
+    listing_remarks: str | None = None
 
 
 class FinancialResult(BaseModel):
@@ -175,14 +186,27 @@ class ZoningPotential(BaseModel):
     summary: str | None = None
 
 
-class AnalyzedListing(BaseModel):
+class _ListingFeaturesMixin(BaseModel):
+    """Redfin-scraped features carried through the pipeline."""
+    has_primary_suite: bool | None = None
+    has_garage: bool | None = None
+    garage_spaces: int | None = None
+    has_basement: bool | None = None
+    basement_finished: bool | None = None
+    has_fireplace: bool | None = None
+    site_features: list[str] = []
+    lot_features: list[str] = []
+    listing_remarks: str | None = None
+
+
+class AnalyzedListing(_ListingFeaturesMixin):
     listing: RawListing
     walk_score: int | None = None
     estimated_monthly_rent: float | None = None
     financials: FinancialResult
 
 
-class FlaggedListing(BaseModel):
+class FlaggedListing(_ListingFeaturesMixin):
     listing: RawListing
     walk_score: int | None = None
     estimated_monthly_rent: float | None = None

@@ -17,6 +17,7 @@ import httpx
 from tools.assessor import lookup_parcel
 from tools.crosswalk import zip_to_county
 from tools.models import EnrichConfig, EnrichResult, RawListing
+from tools.redfin_scraper import fetch_listing_features
 from tools.schools import enrich_with_proficiency, fetch_nearby_schools
 from tools.solar import fetch_solar_ghi
 
@@ -119,12 +120,13 @@ async def enrich_neighborhood(
             return await fetch_solar_ghi(listing.latitude, listing.longitude)
         return None
 
-    walk_score, rent, parcel, schools, solar_ghi = await asyncio.gather(
+    walk_score, rent, parcel, schools, solar_ghi, listing_features = await asyncio.gather(
         _fetch_walk_score(listing),
         _get_rent(),
         _get_parcel(),
         _get_schools(),
         _get_solar(),
+        fetch_listing_features(listing.listing_url or "", _shared_client()),
     )
 
     updated_listing = listing
@@ -138,14 +140,34 @@ async def enrich_neighborhood(
     if solar_ghi is not None:
         updated_listing = updated_listing.model_copy(update={"solar_ghi_annual": solar_ghi})
 
+    lf = listing_features
     return EnrichResult(
         listing=updated_listing,
         walk_score=walk_score,
         estimated_monthly_rent=rent,
+        has_primary_suite=lf.has_primary_suite if lf else None,
+        has_garage=lf.has_garage if lf else None,
+        garage_spaces=lf.garage_spaces if lf else None,
+        has_basement=lf.has_basement if lf else None,
+        basement_finished=lf.basement_finished if lf else None,
+        has_fireplace=lf.has_fireplace if lf else None,
+        site_features=lf.site_features if lf else [],
+        lot_features=lf.lot_features if lf else [],
+        listing_remarks=lf.remarks if lf else None,
     )
 
 
-_ENRICH_CONCURRENCY = 10  # max parallel per-listing API calls
+_ENRICH_CONCURRENCY = 5   # max parallel per-listing API calls (reduced: scraper adds HTTP)
+
+_http_client: httpx.AsyncClient | None = None
+
+
+def _shared_client() -> httpx.AsyncClient:
+    """Lazy singleton httpx client — reuses connections across all listings."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient()
+    return _http_client
 
 
 async def enrich_all(
