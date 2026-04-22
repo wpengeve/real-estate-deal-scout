@@ -17,9 +17,6 @@ def screen_listing(listing: RawListing, criteria: ScreeningCriteria) -> ScreenRe
         return ScreenResult(listing=listing, passed=False, reason="price_unknown")
     if listing.beds is None:
         return ScreenResult(listing=listing, passed=False, reason="beds_unknown")
-    if listing.days_on_market is None:
-        return ScreenResult(listing=listing, passed=False, reason="dom_unknown")
-
     if listing.price > criteria.max_price:
         return ScreenResult(listing=listing, passed=False, reason="price_too_high")
     if listing.beds < criteria.min_beds:
@@ -30,7 +27,8 @@ def screen_listing(listing: RawListing, criteria: ScreeningCriteria) -> ScreenRe
         and listing.baths < criteria.min_baths
     ):
         return ScreenResult(listing=listing, passed=False, reason="baths_below_min")
-    if listing.days_on_market > criteria.max_dom:
+    # None DOM = unknown (e.g. ScraperAPI new listings without a badge) — let through
+    if listing.days_on_market is not None and listing.days_on_market > criteria.max_dom:
         return ScreenResult(listing=listing, passed=False, reason="dom_exceeded")
 
     if (

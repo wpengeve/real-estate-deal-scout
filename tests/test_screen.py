@@ -86,10 +86,10 @@ def test_screen_filters_beds_none():
     assert result.reason == "beds_unknown"
 
 
-def test_screen_filters_dom_none():
+def test_screen_passes_dom_none():
+    # None DOM = unknown (e.g. ScraperAPI listings without a DOM badge) — let through
     result = screen_listing(_listing(days_on_market=None), CRITERIA)
-    assert result.passed is False
-    assert result.reason == "dom_unknown"
+    assert result.passed is True
 
 
 # ── screen_all ─────────────────────────────────────────────────────────────────

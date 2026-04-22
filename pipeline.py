@@ -23,7 +23,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from tools.analyze import analyze_all
 from tools.enrich import enrich_all
-from tools.fetch import fetch_listings
+from tools.fetch import fetch_listings_async
 from tools.mock_ranker import mock_rank_and_narrate
 from tools.models import FlaggedListing, InvestmentConfig, Shortlist
 from tools.ollama_ranker import ollama_rank_and_narrate
@@ -61,7 +61,7 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
 
         # ── Stage 1: Fetch ────────────────────────────────────────────────────
         progress.update(task, description="[1/5] Fetching listings...")
-        raw = fetch_listings(market, config.fetch)
+        raw = await fetch_listings_async(market, config.fetch)
         run_log["listings_fetched"] = len(raw)
         console.log(f"[dim]Fetched {len(raw)} listings[/dim]")
 

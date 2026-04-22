@@ -217,7 +217,6 @@ async def test_pipeline_all_none_fields_no_crash(tmp_path, monkeypatch):
     Pipeline must exit gracefully with "no matches" — no crash, no Claude call.
     """
     from pipeline import run
-    from tools.fetch import fetch_listings
     from tools.models import RawListing
 
     monkeypatch.setattr("pipeline._OUTPUTS_DIR", tmp_path)
@@ -228,7 +227,7 @@ async def test_pipeline_all_none_fields_no_crash(tmp_path, monkeypatch):
     ]
 
     with (
-        patch("pipeline.fetch_listings", return_value=broken_listings),
+        patch("pipeline.fetch_listings_async", new=AsyncMock(return_value=broken_listings)),
         patch("pipeline.anthropic.AsyncAnthropic") as mock_client_cls,
     ):
         mock_client = AsyncMock()

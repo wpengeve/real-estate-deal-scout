@@ -75,8 +75,12 @@ def fetch_listings(
         RuntimeError:      Redfin request failed (redfin mode)
     """
     if fetch_config and fetch_config.data_source == "scraperapi":
-        logger.info("Fetching live listings from ScraperAPI for %s", market)
-        return asyncio.run(_fetch_from_scraperapi(fetch_config))
+        # ScraperAPI requires async I/O. Callers inside a running event loop
+        # (e.g. pipeline.py) must use fetch_listings_async() instead.
+        raise RuntimeError(
+            "data_source=scraperapi requires an async caller. "
+            "Use `await fetch_listings_async(market, config)` from an async context."
+        )
 
     if fetch_config and fetch_config.data_source == "redfin":
         logger.info("Fetching live listings from Redfin for %s", market)
@@ -92,6 +96,22 @@ def fetch_listings(
 
     logger.info("Loading fixture listings for %s", market)
     return _load_fixtures()
+
+
+async def fetch_listings_async(
+    market: str,
+    fetch_config: FetchConfig | None = None,
+) -> list[RawListing]:
+    """
+    Async variant of fetch_listings — required for data_source=scraperapi.
+
+    For all other backends this delegates to the sync fetch_listings() so
+    callers don't need to branch on data source.
+    """
+    if fetch_config and fetch_config.data_source == "scraperapi":
+        logger.info("Fetching live listings from ScraperAPI for %s", market)
+        return await _fetch_from_scraperapi(fetch_config)
+    return fetch_listings(market, fetch_config)
 
 
 # ── Fixtures backend ───────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 # All fields are required unless marked with a default comment.
 
 fetch:
-  data_source: csv             # "fixtures" | "csv" | "redfin" | "scraperapi"
+  data_source: scraperapi      # "fixtures" | "csv" | "redfin" | "scraperapi"
   csv_path: data/redfin.csv    # single CSV — used when csv_paths is not set
   csv_paths:                   # combine multiple CSVs (merged + deduplicated by address)
     - data/redfin_2026-03-27-21-35-29.csv
