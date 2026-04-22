@@ -1,5 +1,5 @@
 """
-Tests for tools/schools.py — NCES + Urban Institute school enrichment.
+Tests for tools/schools.py — NCES + WA OSPI school enrichment.
 
 Both external API calls are mocked with pytest-httpx.
 Functions degrade gracefully — failures return empty lists or None.
@@ -10,10 +10,10 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from tools.models import SchoolInfo
-from tools.schools import _haversine, enrich_with_proficiency, fetch_nearby_schools
+from tools.schools import _haversine, _pct_to_float, enrich_with_proficiency, fetch_nearby_schools
 
 _NCES_URL = re.compile(r"https://nces\.ed\.gov/opengis")
-_URBAN_URL = re.compile(r"https://educationdata\.urban\.org")
+_OSPI_URL = re.compile(r"https://data\.wa\.gov/resource/u25x-vdun")
 
 _NCES_RESPONSE = {
     "features": [
@@ -36,11 +36,9 @@ _NCES_RESPONSE = {
     ]
 }
 
-_URBAN_RESPONSE = {
-    "results": [
-        {"math_test_pct_prof_midpt": 70.0, "read_test_pct_prof_midpt": 65.0}
-    ]
-}
+_OSPI_RESPONSE = [
+    {"proficiency_ela_rate": "65.0%", "proficiency_math_rate": "70.0%"}
+]
 
 
 # ── fetch_nearby_schools ───────────────────────────────────────────────────────
@@ -82,30 +80,25 @@ async def test_fetch_nearby_schools_sorted_by_distance(httpx_mock: HTTPXMock):
 
 @pytest.mark.asyncio
 async def test_enrich_with_proficiency_success(httpx_mock: HTTPXMock):
-    httpx_mock.add_response(url=_URBAN_URL, json=_URBAN_RESPONSE)
-    schools = [SchoolInfo(nces_id="530006000015", name="Test Elementary", level="Elementary")]
+    httpx_mock.add_response(url=_OSPI_URL, json=_OSPI_RESPONSE)
+    schools = [SchoolInfo(nces_id="530006000015", name="Test Elementary Unique1", level="Elementary")]
     result = await enrich_with_proficiency(schools)
     assert len(result) == 1
-    assert result[0].proficiency_score == 67.5  # avg(70, 65)
+    assert result[0].proficiency_score == pytest.approx(67.5)  # avg(65, 70)
 
 
 @pytest.mark.asyncio
 async def test_enrich_with_proficiency_no_data(httpx_mock: HTTPXMock):
-    httpx_mock.add_response(url=_URBAN_URL, json={"results": []})
-    httpx_mock.add_response(url=_URBAN_URL, json={"results": []})
-    httpx_mock.add_response(url=_URBAN_URL, json={"results": []})
-    schools = [SchoolInfo(nces_id="000000000000", name="Unknown School", level="School")]
+    httpx_mock.add_response(url=_OSPI_URL, json=[])
+    schools = [SchoolInfo(nces_id="000000000000", name="Unknown School Unique2", level="School")]
     result = await enrich_with_proficiency(schools)
     assert result[0].proficiency_score is None
 
 
 @pytest.mark.asyncio
 async def test_enrich_with_proficiency_api_failure(httpx_mock: HTTPXMock):
-    # Use a unique nces_id to avoid hitting the in-process cache from other tests
-    httpx_mock.add_response(url=_URBAN_URL, status_code=503)
-    httpx_mock.add_response(url=_URBAN_URL, status_code=503)
-    httpx_mock.add_response(url=_URBAN_URL, status_code=503)
-    schools = [SchoolInfo(nces_id="999999999999", name="Test School", level="High")]
+    httpx_mock.add_response(url=_OSPI_URL, status_code=503)
+    schools = [SchoolInfo(nces_id="999999999999", name="Failing School Unique3", level="High")]
     result = await enrich_with_proficiency(schools)
     assert result[0].proficiency_score is None
 
@@ -114,6 +107,30 @@ async def test_enrich_with_proficiency_api_failure(httpx_mock: HTTPXMock):
 async def test_enrich_with_proficiency_empty_list():
     result = await enrich_with_proficiency([])
     assert result == []
+
+
+@pytest.mark.asyncio
+async def test_enrich_with_proficiency_ela_only(httpx_mock: HTTPXMock):
+    """When only ELA rate is present, proficiency = ELA rate."""
+    httpx_mock.add_response(url=_OSPI_URL, json=[{"proficiency_ela_rate": "55.0%"}])
+    schools = [SchoolInfo(nces_id="111111111111", name="ELA Only School Unique4", level="Elementary")]
+    result = await enrich_with_proficiency(schools)
+    assert result[0].proficiency_score == pytest.approx(55.0)
+
+
+# ── _pct_to_float ──────────────────────────────────────────────────────────────
+
+def test_pct_to_float_normal():
+    assert _pct_to_float("46.30%") == pytest.approx(46.3)
+
+def test_pct_to_float_none():
+    assert _pct_to_float(None) is None
+
+def test_pct_to_float_empty():
+    assert _pct_to_float("") is None
+
+def test_pct_to_float_no_percent_sign():
+    assert _pct_to_float("70.0") == pytest.approx(70.0)
 
 
 # ── _haversine ─────────────────────────────────────────────────────────────────
