@@ -16,12 +16,13 @@ from pydantic import BaseModel, Field
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 class FetchConfig(BaseModel):
-    data_source: str = "fixtures"      # "fixtures", "csv", or "redfin"
+    data_source: str = "fixtures"      # "fixtures", "csv", "redfin", or "scraperapi"
     csv_path: str = "data/redfin.csv"  # single CSV path (used when csv_paths is empty)
     csv_paths: list[str] = Field(default_factory=list)  # multiple CSVs — merged and deduplicated by address
     redfin_region_id: int = 118        # King County, WA — find yours: go to redfin.com,
     redfin_region_type: int = 5        # search your area, click Download All, check the URL
     redfin_max_homes: int = 350        # Redfin's hard cap per request
+    scraperapi_search_urls: list[str] = Field(default_factory=list)  # Redfin search URLs to scrape
 
 
 class EnrichConfig(BaseModel):

@@ -2,7 +2,7 @@
 # All fields are required unless marked with a default comment.
 
 fetch:
-  data_source: csv             # "fixtures" | "csv" | "redfin"
+  data_source: csv             # "fixtures" | "csv" | "redfin" | "scraperapi"
   csv_path: data/redfin.csv    # single CSV — used when csv_paths is not set
   csv_paths:                   # combine multiple CSVs (merged + deduplicated by address)
     - data/redfin_2026-03-27-21-35-29.csv
@@ -17,6 +17,15 @@ fetch:
   redfin_region_id: 16904      # only used when data_source: redfin
   redfin_region_type: 6        # 5=county, 6=city
   redfin_max_homes: 350        # Redfin hard cap per request
+
+  # ScraperAPI — only used when data_source: scraperapi
+  # Add one Redfin search URL per area. Use the URL from your browser after
+  # applying filters (beds, price, property type) on redfin.com.
+  # Requires SCRAPERAPI_KEY in .env (free tier: 1,000 credits/month)
+  scraperapi_search_urls:
+    - "https://www.redfin.com/city/16163/WA/Seattle/filter/min-beds=3,max-price=2250000,property-type=house"
+    - "https://www.redfin.com/city/1778/WA/Bellevue/filter/min-beds=3,max-price=2250000,property-type=house"
+    - "https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000,property-type=house"
 
 enrich:
   hud_rent_multiplier: 1.0       # Validated against Zillow Rent Zestimate (Apr 2026): HUD FMR

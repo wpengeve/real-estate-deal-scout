@@ -1,0 +1,48 @@
+{
+  "listing": [
+    {
+      "address": "1234 Pine St, Seattle, WA 98101",
+      "number_beds": "3 beds",
+      "number_baths": "2 baths",
+      "sq_ft": "1,450 sq ft",
+      "price": [{"cost": 750000, "currency": "USD"}],
+      "key_facts": ["4,160 sq ft lot", "2 garage spots", "Walker's paradise", "$250 HOA"],
+      "badge": ["5 DAYS ON REDFIN"],
+      "url": "https://www.redfin.com/WA/Seattle/1234-Pine-St-98101/home/12345678",
+      "thumbnail_img_url": "https://ssl.cdn-redfin.com/photo/1/thumb.jpg"
+    },
+    {
+      "address": "5678 Oak Ave, Bellevue, WA 98004",
+      "number_beds": "4 beds",
+      "number_baths": "2.5 baths",
+      "sq_ft": "2,100 sq ft",
+      "price": [{"cost": 1250000, "currency": "USD"}],
+      "key_facts": ["6,000 sq ft lot", "3 garage spots"],
+      "badge": ["NEW 3 HRS AGO"],
+      "url": "https://www.redfin.com/WA/Bellevue/5678-Oak-Ave-98004/home/87654321",
+      "thumbnail_img_url": "https://ssl.cdn-redfin.com/photo/2/thumb.jpg"
+    },
+    {
+      "address": "999 Maple Dr, Kirkland, WA 98033",
+      "number_beds": "Studio",
+      "number_baths": "1 bath",
+      "sq_ft": "520 sq ft",
+      "price": [{"cost": 380000, "currency": "USD"}],
+      "key_facts": [],
+      "badge": ["PRICE DROP"],
+      "url": "https://www.redfin.com/WA/Kirkland/999-Maple-Dr-98033/home/11223344",
+      "thumbnail_img_url": "https://ssl.cdn-redfin.com/photo/3/thumb.jpg"
+    },
+    {
+      "address": "222 Elm St, Redmond, WA 98052",
+      "number_beds": "3 beds",
+      "number_baths": "1.5 baths",
+      "sq_ft": "1,800 sq ft",
+      "price": [{"cost": 950000, "currency": "USD"}],
+      "key_facts": ["5,500 sq ft lot", "$0 HOA"],
+      "badge": ["NEW"],
+      "url": "https://www.redfin.com/WA/Redmond/222-Elm-St-98052/home/55667788",
+      "thumbnail_img_url": ""
+    }
+  ]
+}

@@ -1,10 +1,13 @@
 """
 Fetch listings from a data source.
 
-Three backends:
-  fixtures — load from fixtures/listings.json (default, for development)
-  csv      — load from a locally saved Redfin CSV (recommended for real data)
-  redfin   — fetch live CSV from Redfin's "Download All" endpoint (no API key)
+Four backends:
+  fixtures   — load from fixtures/listings.json (default, for development)
+  csv        — load from a locally saved Redfin CSV (recommended for real data)
+  redfin     — fetch live CSV from Redfin's "Download All" endpoint (no API key)
+  scraperapi — fetch live structured listings via ScraperAPI's Redfin endpoint
+               Requires SCRAPERAPI_KEY and optionally GOOGLE_MAPS_KEY in .env.
+               Set fetch.scraperapi_search_urls in config.yaml.
 
 To use the csv backend:
   1. Go to redfin.com and search your city/filters
@@ -12,17 +15,25 @@ To use the csv backend:
   3. Save the file to data/redfin.csv  (or set fetch.csv_path in config.yaml)
   4. Set fetch.data_source: csv in config.yaml
 """
+import asyncio
 import csv
 import io
 import json
 import logging
+import os
 from pathlib import Path
 
 import httpx
 
+from tools.geocode import geocode_address
 from tools.models import FetchConfig, RawListing
+from tools.scraperapi_normalizer import normalize_all
 
 logger = logging.getLogger(__name__)
+
+_SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY")
+_SCRAPERAPI_URL = "https://api.scraperapi.com/structured/redfin/search"
+_SCRAPERAPI_TIMEOUT = 60.0  # structured endpoints can be slow
 
 _DEFAULT_FIXTURES = Path(__file__).parent.parent / "fixtures" / "listings.json"
 
@@ -63,6 +74,10 @@ def fetch_listings(
         ValueError:        fixtures file contains invalid JSON (fixtures mode)
         RuntimeError:      Redfin request failed (redfin mode)
     """
+    if fetch_config and fetch_config.data_source == "scraperapi":
+        logger.info("Fetching live listings from ScraperAPI for %s", market)
+        return asyncio.run(_fetch_from_scraperapi(fetch_config))
+
     if fetch_config and fetch_config.data_source == "redfin":
         logger.info("Fetching live listings from Redfin for %s", market)
         return _fetch_from_redfin(fetch_config)
@@ -264,3 +279,96 @@ def _float_or_none(val: str | None) -> float | None:
 def _int_or_none(val: str | None) -> int | None:
     f = _float_or_none(val)
     return int(f) if f is not None else None
+
+
+# ── ScraperAPI backend ─────────────────────────────────────────────────────────
+
+async def _fetch_from_scraperapi(fetch_config: FetchConfig) -> list[RawListing]:
+    """
+    Fetch structured Redfin listings from ScraperAPI.
+
+    Each URL in scraperapi_search_urls is a Redfin search page URL.
+    ScraperAPI scrapes it and returns structured JSON.
+
+    After normalization, geocoding resolves lat/lon for each listing
+    (required by downstream enrichment stages: schools, solar, FEMA).
+
+    Raises RuntimeError if SCRAPERAPI_KEY is not set or no URLs configured.
+    """
+    if not _SCRAPERAPI_KEY:
+        raise RuntimeError(
+            "SCRAPERAPI_KEY is not set. Add it to .env.\n"
+            "Sign up: https://www.scraperapi.com/"
+        )
+
+    urls = fetch_config.scraperapi_search_urls
+    if not urls:
+        raise RuntimeError(
+            "No scraperapi_search_urls configured. "
+            "Add at least one Redfin search URL to fetch.scraperapi_search_urls in config.yaml."
+        )
+
+    all_listings: list[RawListing] = []
+    seen_addresses: set[str] = set()
+
+    async with httpx.AsyncClient(timeout=_SCRAPERAPI_TIMEOUT) as client:
+        for search_url in urls:
+            logger.info("ScraperAPI: fetching %s", search_url)
+            try:
+                resp = await client.get(
+                    _SCRAPERAPI_URL,
+                    params={"api_key": _SCRAPERAPI_KEY, "url": search_url},
+                )
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                raise RuntimeError(
+                    f"ScraperAPI returned HTTP {e.response.status_code} for {search_url}"
+                ) from e
+            except httpx.TimeoutException as e:
+                raise RuntimeError(
+                    f"ScraperAPI timed out for {search_url}"
+                ) from e
+
+            listings = normalize_all(resp.json())
+            logger.info("ScraperAPI: %d listings from %s", len(listings), search_url)
+
+            # Deduplicate across multiple search URLs by address
+            for listing in listings:
+                key = listing.address.strip().lower()
+                if key not in seen_addresses:
+                    seen_addresses.add(key)
+                    all_listings.append(listing)
+
+        # Geocode listings that have no coordinates (ScraperAPI doesn't return lat/lon)
+        all_listings = await _geocode_listings(all_listings, client)
+
+    logger.info(
+        "ScraperAPI: %d unique listings total (%d geocoded)",
+        len(all_listings),
+        sum(1 for l in all_listings if l.latitude is not None),
+    )
+    return all_listings
+
+
+async def _geocode_listings(
+    listings: list[RawListing],
+    client: httpx.AsyncClient,
+) -> list[RawListing]:
+    """
+    Resolve lat/lon for listings that are missing coordinates.
+
+    Runs up to 10 geocoding calls concurrently to stay within rate limits.
+    Listings that already have coordinates are passed through unchanged.
+    """
+    sem = asyncio.Semaphore(10)
+
+    async def _resolve(listing: RawListing) -> RawListing:
+        if listing.latitude is not None and listing.longitude is not None:
+            return listing
+        async with sem:
+            coords = await geocode_address(listing.address, client)
+        if coords:
+            return listing.model_copy(update={"latitude": coords[0], "longitude": coords[1]})
+        return listing
+
+    return list(await asyncio.gather(*(_resolve(l) for l in listings)))
