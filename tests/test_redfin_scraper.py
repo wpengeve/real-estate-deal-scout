@@ -204,6 +204,26 @@ def test_scores_none_when_no_walkscore_blob():
     assert f.transit_score is None
 
 
+# ── Year built ─────────────────────────────────────────────────────────────────
+
+YEAR_BUILT_HTML = """
+<script type="application/ld+json">{"@type":"SingleFamilyResidence","yearBuilt":1952,"numberOfBedrooms":4}</script>
+"""
+
+def test_year_built_parsed():
+    f = parse(YEAR_BUILT_HTML)
+    assert f.year_built == 1952
+
+def test_year_built_none_when_missing():
+    f = parse("<html>no year built here</html>")
+    assert f.year_built is None
+
+def test_year_built_not_confused_by_other_numbers():
+    # Should not pick up non-year numbers
+    f = parse('<html><span>Price: $850,000</span><span>Beds: 4</span></html>')
+    assert f.year_built is None
+
+
 # ── fetch_listing_features: URL guard ─────────────────────────────────────────
 
 @pytest.mark.asyncio

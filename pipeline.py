@@ -313,7 +313,7 @@ Properties with HIGH risk should be noted prominently in the narrative."""
 
     response = await client.messages.create(
         model=_CLAUDE_MODEL,
-        max_tokens=4096,
+        max_tokens=8192,
         tools=[
             {
                 "name": "produce_shortlist",

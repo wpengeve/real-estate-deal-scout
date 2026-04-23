@@ -97,27 +97,34 @@ async def _hud_zip_to_geoid(zip_code: str) -> str | None:
 
 
 async def _census_county_name(state_fips: str, county_fips: str) -> str | None:
-    """Call Census Bureau API to get county name from state + county FIPS."""
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(
-                _CENSUS_URL,
-                params={
-                    "get": "NAME",
-                    "for": f"county:{county_fips}",
-                    "in": f"state:{state_fips}",
-                },
-            )
-            resp.raise_for_status()
-            rows = resp.json()
+    """Call Census Bureau API to get county name from state + county FIPS.
 
-        # rows = [["NAME", "state", "county"], ["King County, Washington", "53", "033"]]
-        if len(rows) < 2:
-            logger.warning("Census API: no county for state=%s county=%s", state_fips, county_fips)
-            return None
+    Retries once on transient failures (Census API occasionally drops connections).
+    """
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await client.get(
+                    _CENSUS_URL,
+                    params={
+                        "get": "NAME",
+                        "for": f"county:{county_fips}",
+                        "in": f"state:{state_fips}",
+                    },
+                )
+                resp.raise_for_status()
+                rows = resp.json()
 
-        return rows[1][0]
+            # rows = [["NAME", "state", "county"], ["King County, Washington", "53", "033"]]
+            if len(rows) < 2:
+                logger.warning("Census API: no county for state=%s county=%s", state_fips, county_fips)
+                return None
 
-    except Exception as e:
-        logger.warning("Census county name lookup failed (state=%s county=%s): %s", state_fips, county_fips, e)
-        return None
+            return rows[1][0]
+
+        except Exception as e:
+            if attempt == 0:
+                logger.debug("Census county lookup failed (state=%s county=%s), retrying: %s", state_fips, county_fips, e or type(e).__name__)
+            else:
+                logger.warning("Census county name lookup failed (state=%s county=%s): %s", state_fips, county_fips, e or type(e).__name__)
+    return None

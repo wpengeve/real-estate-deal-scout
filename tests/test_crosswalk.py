@@ -130,6 +130,8 @@ async def test_zip_to_county_picks_highest_res_ratio(monkeypatch, httpx_mock: HT
 async def test_zip_to_county_returns_none_on_census_error(monkeypatch, httpx_mock: HTTPXMock):
     monkeypatch.setattr(crosswalk_module, "_HUD_API_KEY", _HUD_KEY)
     httpx_mock.add_response(url=_HUD_URL, json=_hud_response("53033"))
+    # Two 500s needed because _census_county_name retries once on failure
+    httpx_mock.add_response(url=_CENSUS_URL, status_code=500)
     httpx_mock.add_response(url=_CENSUS_URL, status_code=500)
     result = await zip_to_county("98118")
     assert result is None

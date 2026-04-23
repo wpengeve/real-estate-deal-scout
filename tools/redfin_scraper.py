@@ -8,6 +8,7 @@ Fields extracted:
     walk_score          int  | None  — Walk Score (0–100)
     bike_score          int  | None  — Bike Score (0–100)
     transit_score       int  | None  — Transit Score (0–100)
+    year_built          int  | None  — year property was built (from schema.org JSON-LD)
     has_primary_suite   bool | None  — listing contains a "Primary Bedroom" room type
     has_garage          bool | None  — attached or detached garage present
     garage_spaces       int  | None  — number of covered/garage spaces
@@ -46,6 +47,7 @@ class ListingFeatures:
         "walk_score",
         "bike_score",
         "transit_score",
+        "year_built",
         "has_primary_suite",
         "has_garage",
         "garage_spaces",
@@ -61,6 +63,7 @@ class ListingFeatures:
         self.walk_score: int | None = None
         self.bike_score: int | None = None
         self.transit_score: int | None = None
+        self.year_built: int | None = None
         self.has_primary_suite: bool | None = None
         self.has_garage: bool | None = None
         self.garage_spaces: int | None = None
@@ -116,6 +119,14 @@ def parse(html: str) -> ListingFeatures:
         f.walk_score = _parse_score(chunk, "walkScore")
         f.bike_score = _parse_score(chunk, "bikeScore")
         f.transit_score = _parse_score(chunk, "transitScore")
+
+    # ── Year built (schema.org JSON-LD embedded in the page) ──────────────────
+    m = re.search(r'"yearBuilt"\s*:\s*(\d{4})', html)
+    if m:
+        try:
+            f.year_built = int(m.group(1))
+        except ValueError:
+            pass
 
     # ── Primary suite ──────────────────────────────────────────────────────────
     # Room type entries look like: "Room Type: Primary Bedroom"

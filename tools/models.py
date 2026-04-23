@@ -266,4 +266,4 @@ class DealNarrative(BaseModel):
 class Shortlist(BaseModel):
     market: str
     deals: list[DealNarrative]
-    run_summary: str
+    run_summary: str = ""
