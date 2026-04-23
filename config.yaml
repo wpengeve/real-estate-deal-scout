@@ -84,6 +84,6 @@ financial_assumptions:
 output:
   max_shortlist: 15          # maximum properties in ranked shortlist
   market: "Seattle, WA"      # target market (overridable via --market CLI flag)
-  ranker: ollama             # "mock" | "ollama" | "claude"
+  ranker: claude             # "mock" | "ollama" | "claude"
   ollama_model: llama3.1:8b  # model name from `ollama list`
   ollama_base_url: http://localhost:11434

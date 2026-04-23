@@ -309,9 +309,7 @@ Be specific about the financials. Rank by overall investment quality \
 Properties with financial_data_available=false should rank lower. \
 Properties with HIGH risk should be noted prominently in the narrative."""
 
-    output_schema = Shortlist.model_json_schema()
-    # Remove $defs to keep schema clean for Claude
-    output_schema.pop("$defs", None)
+    output_schema = _resolve_schema_refs(Shortlist.model_json_schema())
 
     response = await client.messages.create(
         model=_CLAUDE_MODEL,
@@ -331,16 +329,26 @@ Properties with HIGH risk should be noted prominently in the narrative."""
     shortlist_data["market"] = config.output.market
     shortlist = Shortlist.model_validate(shortlist_data)
 
-    # Merge pipeline-derived fields that Claude may not have populated.
-    # Financial/risk fields must come from the pipeline, not the LLM.
+    # Overwrite all pipeline-derived fields from authoritative pipeline data.
+    # This prevents Claude from returning financials in wrong units (e.g. pct vs decimal).
     flagged_by_address = {f.listing.address.strip().lower(): f for f in flagged}
     for deal in shortlist.deals:
         f = flagged_by_address.get(deal.address.strip().lower())
         if f is None:
             continue
+        deal.price = f.listing.price
+        deal.beds = f.listing.beds
+        deal.baths = f.listing.baths
+        deal.days_on_market = f.listing.days_on_market
+        deal.cap_rate = f.financials.cap_rate
+        deal.coc_return = f.financials.coc_return
+        deal.monthly_cashflow = f.financials.monthly_cashflow
         deal.noi_annual = f.financials.noi_annual
         deal.monthly_mortgage = f.financials.monthly_mortgage
         deal.estimated_monthly_rent = f.estimated_monthly_rent
+        deal.walk_score = f.walk_score
+        deal.flood_zone = f.risks.flood_zone
+        deal.risk_level = f.risks.overall_risk.value
         deal.tax_assessed_land = f.listing.tax_assessed_land
         deal.tax_assessed_improvement = f.listing.tax_assessed_improvement
         deal.appreciation = f.appreciation
@@ -354,6 +362,26 @@ Properties with HIGH risk should be noted prominently in the narrative."""
         deal.transit_score = f.transit_score
 
     return shortlist
+
+
+def _resolve_schema_refs(schema: dict) -> dict:
+    """
+    Inline all $ref references in a JSON schema so Claude receives a self-contained
+    schema with no unresolvable $ref pointers.
+    """
+    defs = schema.get("$defs", {})
+
+    def _inline(obj):
+        if isinstance(obj, dict):
+            if "$ref" in obj:
+                ref_name = obj["$ref"].split("/")[-1]
+                return _inline(defs.get(ref_name, obj))
+            return {k: _inline(v) for k, v in obj.items() if k != "$defs"}
+        if isinstance(obj, list):
+            return [_inline(item) for item in obj]
+        return obj
+
+    return _inline(schema)
 
 
 def _write_run_log(entry: dict) -> None:
