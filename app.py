@@ -312,9 +312,11 @@ async def _run_pipeline_bg(
         finally:
             db.close()
 
-    except Exception as e:
+    except (Exception, SystemExit) as e:
+        # Catch SystemExit (raised by pipeline when ranker fails) in addition to Exception
         logger.exception("Run %s failed", run_id)
-        _runs[run_id] = {"status": "error", "progress": str(e), "error": str(e)}
+        msg = str(e) or type(e).__name__
+        _runs[run_id] = {"status": "error", "progress": msg, "error": msg}
         db = get_db()
         try:
             upsert_report_run(db, run_id, status="error")
