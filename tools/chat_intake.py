@@ -251,10 +251,31 @@ def _build_config(extracted: dict, base: InvestmentConfig) -> InvestmentConfig:
 
     Fields not extracted by Claude fall back to base_config values so that
     advanced settings (vacancy rate, maintenance %, etc.) are preserved.
+
+    If extracted contains scraperapi_search_urls, those replace the base fetch
+    URLs and data_source is forced to "scraperapi" so the new market is fetched.
     """
+    from tools.models import FetchConfig  # avoid circular import at module level
+
     fa = base.financial_assumptions
+
+    # Override fetch config when search URLs are explicitly provided (multi-market support)
+    scraperapi_urls = extracted.get("scraperapi_search_urls") or []
+    if scraperapi_urls:
+        fetch = FetchConfig(
+            data_source="scraperapi",
+            csv_path=base.fetch.csv_path,
+            csv_paths=base.fetch.csv_paths,
+            redfin_region_id=base.fetch.redfin_region_id,
+            redfin_region_type=base.fetch.redfin_region_type,
+            redfin_max_homes=base.fetch.redfin_max_homes,
+            scraperapi_search_urls=scraperapi_urls,
+        )
+    else:
+        fetch = base.fetch
+
     return InvestmentConfig(
-        fetch=base.fetch,
+        fetch=fetch,
         enrich=base.enrich,
         criteria=ScreeningCriteria(
             max_price=extracted["max_price"],

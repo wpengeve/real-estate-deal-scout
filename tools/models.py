@@ -261,6 +261,13 @@ class DealNarrative(BaseModel):
     year_built: int | None = None
     nearby_schools: list[SchoolInfo] | None = None
     solar_ghi_annual: float | None = None
+    # Redfin-scraped property features (populated when data_source=scraperapi)
+    has_primary_suite: bool | None = None
+    has_garage: bool | None = None
+    garage_spaces: int | None = None
+    has_basement: bool | None = None
+    basement_finished: bool | None = None
+    has_fireplace: bool | None = None
 
 
 class Shortlist(BaseModel):

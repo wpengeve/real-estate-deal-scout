@@ -206,6 +206,7 @@ async def chat(req: ChatRequest):
 
 class RunRequest(BaseModel):
     session_id: str
+    scraperapi_search_urls: list[str] | None = None
 
 
 @app.post("/api/run")
@@ -218,7 +219,7 @@ async def start_run(
     session = _chat_sessions.get(req.session_id)
     if not session or not session.extracted:
         raise HTTPException(status_code=400, detail="No confirmed criteria for this session.")
-    config = session.build_config(_load_base_config())
+    config = session.build_config(_load_base_config(), scraperapi_search_urls=req.scraperapi_search_urls)
     if config is None:
         raise HTTPException(status_code=400, detail="Could not build config from criteria.")
     return _launch_run(config, db, user, criteria=session.extracted)

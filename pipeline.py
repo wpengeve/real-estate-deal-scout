@@ -360,6 +360,12 @@ Properties with HIGH risk should be noted prominently in the narrative."""
         deal.solar_ghi_annual = f.listing.solar_ghi_annual
         deal.bike_score = f.bike_score
         deal.transit_score = f.transit_score
+        deal.has_primary_suite = f.has_primary_suite
+        deal.has_garage = f.has_garage
+        deal.garage_spaces = f.garage_spaces
+        deal.has_basement = f.has_basement
+        deal.basement_finished = f.basement_finished
+        deal.has_fireplace = f.has_fireplace
 
     return shortlist
 

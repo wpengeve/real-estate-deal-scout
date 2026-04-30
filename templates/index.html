@@ -91,6 +91,13 @@
     .btn-secondary { padding: 8px 14px; background: none; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s, color .15s; font-family: inherit; }
     .btn-secondary:hover { background: var(--bg); color: var(--text); }
 
+    /* search URL section inside criteria card */
+    .search-urls-wrap { margin-bottom: 10px; }
+    .search-urls-label { font-size: 12px; font-weight: 600; color: var(--text); display: block; margin-bottom: 4px; }
+    .search-urls-hint { font-weight: 400; color: var(--muted); }
+    .search-urls-input { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 12px; font-family: monospace; resize: vertical; outline: none; background: #fff; line-height: 1.4; }
+    .search-urls-input:focus { border-color: #93c5fd; }
+
     /* chat bubble markdown */
     .bubble ul { margin: 4px 0 4px 16px; }
     .bubble li { margin: 2px 0; }
@@ -171,6 +178,14 @@
     <div id="chat-criteria-card" class="criteria-card" style="display:none">
       <h3>✓ Criteria confirmed</h3>
       <ul id="chat-criteria-list"></ul>
+      <div class="search-urls-wrap">
+        <label class="search-urls-label">
+          Redfin search URLs
+          <span class="search-urls-hint">— leave blank for Seattle · paste URLs for other markets</span>
+        </label>
+        <textarea id="chat-search-urls" class="search-urls-input" rows="2"
+          placeholder="https://www.redfin.com/city/XXXX/STATE/City/filter/min-beds=3,max-price=...&#10;(one URL per line — go to redfin.com, set filters, copy the URL)"></textarea>
+      </div>
       <div class="criteria-card-actions">
         <button class="btn-primary btn-green" style="flex:1" id="chat-find-btn" onclick="startRun('chat')">Find Deals →</button>
         <button class="btn-secondary" onclick="resetChat()" title="Clear criteria and start over">New search</button>
@@ -196,7 +211,7 @@
             <input type="text" id="f-market" value="Seattle, WA" required>
           </div>
           <div class="form-group full">
-            <label>Cities to search <span class="hint">(one per line)</span></label>
+            <label>Cities to search <span class="hint">(one per line — used to filter results)</span></label>
             <textarea id="f-cities" rows="4">Seattle
 Bellevue
 Kirkland
@@ -213,6 +228,12 @@ Tukwila
 Mercer Island
 Issaquah
 Sammamish</textarea>
+          </div>
+          <div class="form-group full">
+            <label>Redfin search URLs <span class="hint">(one per line — go to redfin.com, set your filters, copy the URL)</span></label>
+            <textarea id="f-search-urls" rows="3">https://www.redfin.com/city/16163/WA/Seattle/filter/min-beds=3,max-price=2250000,property-type=house
+https://www.redfin.com/city/1778/WA/Bellevue/filter/min-beds=3,max-price=2250000,property-type=house
+https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000,property-type=house</textarea>
           </div>
 
           <div class="section-title">Property</div>
@@ -441,6 +462,10 @@ Sammamish</textarea>
       .split('\n').map(s => s.trim()).filter(Boolean);
     if (!cities.length) { alert('Please enter at least one city.'); return; }
 
+    const searchUrls = document.getElementById('f-search-urls').value
+      .split('\n').map(s => s.trim()).filter(Boolean);
+    if (!searchUrls.length) { alert('Please enter at least one Redfin search URL.'); return; }
+
     const homeType = document.getElementById('f-home-type').value;
     const maxHoa = parseFloat(document.getElementById('f-max-hoa').value);
     const minCap = parseFloat(document.getElementById('f-min-cap').value);
@@ -449,6 +474,7 @@ Sammamish</textarea>
     const criteria = {
       market_name: document.getElementById('f-market').value.trim(),
       allowed_cities: cities,
+      scraperapi_search_urls: searchUrls,
       max_price: parseFloat(document.getElementById('f-max-price').value),
       min_beds: parseInt(document.getElementById('f-min-beds').value),
       min_baths: minBaths > 0 ? minBaths : null,
@@ -494,9 +520,14 @@ Sammamish</textarea>
   async function startRun(source) {
     document.getElementById('chat-find-btn').disabled = true;
     showProgress();
+    const urlsText = document.getElementById('chat-search-urls').value;
+    const searchUrls = urlsText.split('\n').map(s => s.trim()).filter(Boolean);
     const res = await fetch('/api/run', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ session_id: SESSION_ID }),
+      body: JSON.stringify({
+        session_id: SESSION_ID,
+        scraperapi_search_urls: searchUrls.length ? searchUrls : null,
+      }),
     });
     if (!res.ok) {
       hideProgress();

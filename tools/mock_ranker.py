@@ -127,6 +127,12 @@ def mock_rank_and_narrate(
                 year_built=f.listing.year_built,
                 nearby_schools=f.listing.nearby_schools,
                 solar_ghi_annual=f.listing.solar_ghi_annual,
+                has_primary_suite=f.has_primary_suite,
+                has_garage=f.has_garage,
+                garage_spaces=f.garage_spaces,
+                has_basement=f.has_basement,
+                basement_finished=f.basement_finished,
+                has_fireplace=f.has_fireplace,
             )
         )
 

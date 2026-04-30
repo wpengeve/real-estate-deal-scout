@@ -295,6 +295,24 @@ def _render_solar_metric(deal: DealNarrative) -> str:
     )
 
 
+def _render_features(deal: DealNarrative) -> str:
+    """Render scraped Redfin property features as compact chips."""
+    chips = []
+    if deal.has_primary_suite is True:
+        chips.append("🛏 Primary suite")
+    if deal.has_garage is True:
+        label = f"🚗 {deal.garage_spaces}-car garage" if deal.garage_spaces else "🚗 Garage"
+        chips.append(label)
+    if deal.has_basement is True:
+        chips.append("⬇ Finished basement" if deal.basement_finished else "⬇ Basement")
+    if deal.has_fireplace is True:
+        chips.append("🔥 Fireplace")
+    if not chips:
+        return ""
+    items = "".join(f'<span class="feature-chip">{c}</span>' for c in chips)
+    return f'<div class="features">{items}</div>'
+
+
 def _render_deal(deal: DealNarrative, idx: int) -> str:
     risk = _RISK_COLOR.get(deal.risk_level, _RISK_COLOR["LOW"])
     cf_class = _cashflow_class(deal.monthly_cashflow)
@@ -364,6 +382,8 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
       {f'<div class="metric"><div class="metric-label">HOA</div><div class="metric-value negative">{_fmt_currency(deal.hoa_fee)}/mo</div></div>' if deal.hoa_fee else ""}
       {f'<div class="metric"><div class="metric-label">Home Type</div><div class="metric-value">{deal.home_type}</div></div>' if deal.home_type else ""}
     </div>
+
+    {_render_features(deal)}
 
     <div class="narrative">{deal.narrative}</div>
 
@@ -576,6 +596,18 @@ body {{
 .assessed-breakdown span {{
   font-size: 0.72rem; color: #64748b; font-weight: 500;
   background: #f1f5f9; border-radius: 4px; padding: 0.15rem 0.4rem;
+}}
+
+/* ── Property features ── */
+.features {{
+  display: flex; flex-wrap: wrap; gap: 0.4rem;
+}}
+.feature-chip {{
+  font-size: 0.72rem; font-weight: 600;
+  background: #f1f5f9; color: #475569;
+  border: 1px solid #e2e8f0;
+  border-radius: 99px; padding: 0.2rem 0.6rem;
+  white-space: nowrap;
 }}
 
 /* ── Narrative ── */

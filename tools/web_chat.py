@@ -88,8 +88,15 @@ class ChatSession:
             "confirmed": self.extracted is not None,
         }
 
-    def build_config(self, base_config: InvestmentConfig) -> InvestmentConfig | None:
+    def build_config(
+        self,
+        base_config: InvestmentConfig,
+        scraperapi_search_urls: list[str] | None = None,
+    ) -> InvestmentConfig | None:
         """Merge extracted criteria into the base pipeline config."""
         if not self.extracted:
             return None
-        return _build_config(self.extracted, base_config)
+        extracted = {**self.extracted}
+        if scraperapi_search_urls:
+            extracted["scraperapi_search_urls"] = scraperapi_search_urls
+        return _build_config(extracted, base_config)
