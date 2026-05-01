@@ -81,22 +81,25 @@
     .dot:nth-child(3) { animation-delay: .4s; }
     @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-5px)} }
 
-    /* criteria card */
-    .criteria-card { margin: 0 16px 4px; background: var(--green-light); border: 1px solid var(--green-border); border-radius: var(--radius); padding: 14px 16px; flex-shrink: 0; }
-    .criteria-card h3 { font-size: 13px; font-weight: 600; color: var(--green); margin-bottom: 8px; }
-    .criteria-card ul { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 16px; margin-bottom: 12px; }
-    .criteria-card li { font-size: 13px; display: flex; gap: 5px; }
-    .criteria-card li::before { content: "·"; color: var(--green); font-weight: bold; }
-    .criteria-card-actions { display: flex; gap: 8px; }
-    .btn-secondary { padding: 8px 14px; background: none; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s, color .15s; font-family: inherit; }
-    .btn-secondary:hover { background: var(--bg); color: var(--text); }
+    /* ── Inline criteria card (rendered as a chat message) ── */
+    .criteria-msg { align-self: stretch; max-width: 100%; }
+    .criteria-msg-card {
+      background: var(--green-light);
+      border: 1px solid var(--green-border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      width: 100%;
+    }
+    .criteria-msg-card h3 { font-size: 13px; font-weight: 700; color: var(--green); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+    .criteria-msg-card ul { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 20px; margin-bottom: 14px; }
+    .criteria-msg-card li { font-size: 13px; display: flex; gap: 5px; }
+    .criteria-msg-card li::before { content: "·"; color: var(--green); font-weight: bold; }
 
-    /* search URL section inside criteria card */
-    .search-urls-wrap { margin-bottom: 10px; }
-    .search-urls-label { font-size: 12px; font-weight: 600; color: var(--text); display: block; margin-bottom: 4px; }
-    .search-urls-hint { font-weight: 400; color: var(--muted); }
-    .search-urls-input { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 12px; font-family: monospace; resize: vertical; outline: none; background: #fff; line-height: 1.4; }
-    .search-urls-input:focus { border-color: #93c5fd; }
+
+.criteria-actions { display: flex; gap: 8px; align-items: center; }
+    .find-deals-btn { flex: 1; padding: 11px 20px; background: var(--green); color: #fff; border: none; border-radius: var(--radius-sm); font-size: 14px; font-weight: 700; cursor: pointer; transition: background .15s; font-family: inherit; }
+    .find-deals-btn:hover { background: #15803d; }
+    .find-deals-btn:disabled { background: #9ca3af; cursor: not-allowed; }
 
     /* chat bubble markdown */
     .bubble ul { margin: 4px 0 4px 16px; }
@@ -106,6 +109,7 @@
     .input-bar { padding: 12px 16px; background: var(--surface); border-top: 1px solid var(--border); display: flex; gap: 8px; flex-shrink: 0; }
     #msg-input { flex: 1; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; font-family: inherit; resize: none; outline: none; min-height: 42px; max-height: 120px; line-height: 1.4; transition: border-color .15s; }
     #msg-input:focus { border-color: #93c5fd; }
+    #msg-input.locked { background: #f9fafb; color: var(--muted); }
 
     /* ── Form panel ── */
     .form-scroll { flex: 1; overflow-y: auto; padding: 24px 20px; }
@@ -130,6 +134,24 @@
     .btn-green { background: var(--green); }
     .btn-green:hover { background: #15803d; }
     .btn-full { width: 100%; }
+    .btn-secondary { padding: 8px 14px; background: none; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s, color .15s; font-family: inherit; }
+    .btn-secondary:hover { background: var(--bg); color: var(--text); }
+
+    /* ── Results panel ── */
+    #panel-results { background: var(--bg); }
+    .results-nav {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .results-nav-title { font-size: 14px; font-weight: 600; flex: 1; }
+    .results-nav a { font-size: 13px; color: var(--muted); text-decoration: none; }
+    .results-nav a:hover { color: var(--text); }
+    .btn-back { display: flex; align-items: center; gap: 5px; padding: 7px 12px; background: none; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; color: var(--text); cursor: pointer; font-family: inherit; transition: background .15s; }
+    .btn-back:hover { background: var(--bg); }
+    #report-frame { flex: 1; border: none; width: 100%; }
 
     /* ── Progress overlay ── */
     #progress-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: center; justify-content: center; }
@@ -161,7 +183,7 @@
     </div>
   </header>
 
-  <div class="tabs">
+  <div class="tabs" id="main-tabs">
     <div class="tab active" onclick="switchTab('chat')">💬 Chat</div>
     <div class="tab" onclick="switchTab('form')">⚙️ Manual Setup</div>
   </div>
@@ -172,23 +194,6 @@
       <div class="msg agent">
         <div class="avatar">🤖</div>
         <div class="bubble">What kind of investment property are you looking for? Tell me your budget, target cities, how many bedrooms you need, and how much you're putting down.</div>
-      </div>
-    </div>
-
-    <div id="chat-criteria-card" class="criteria-card" style="display:none">
-      <h3>✓ Criteria confirmed</h3>
-      <ul id="chat-criteria-list"></ul>
-      <div class="search-urls-wrap">
-        <label class="search-urls-label">
-          Redfin search URLs
-          <span class="search-urls-hint">— leave blank for Seattle · paste URLs for other markets</span>
-        </label>
-        <textarea id="chat-search-urls" class="search-urls-input" rows="2"
-          placeholder="https://www.redfin.com/city/XXXX/STATE/City/filter/min-beds=3,max-price=...&#10;(one URL per line — go to redfin.com, set filters, copy the URL)"></textarea>
-      </div>
-      <div class="criteria-card-actions">
-        <button class="btn-primary btn-green" style="flex:1" id="chat-find-btn" onclick="startRun('chat')">Find Deals →</button>
-        <button class="btn-secondary" onclick="resetChat()" title="Clear criteria and start over">New search</button>
       </div>
     </div>
 
@@ -297,6 +302,16 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
     </div>
   </div>
 
+  <!-- ── Results panel (replaces full-page redirect) ── -->
+  <div class="panel" id="panel-results">
+    <div class="results-nav">
+      <button class="btn-back" onclick="backToSearch()">← New Search</button>
+      <span class="results-nav-title" id="results-label">Results</span>
+      <a id="results-open-link" href="#" target="_blank">Open in new tab ↗</a>
+    </div>
+    <iframe id="report-frame" src="" title="Deal Scout Report"></iframe>
+  </div>
+
 </div>
 
 <!-- ── Auth modal ── -->
@@ -335,12 +350,15 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   const SESSION_ID = getSessionId();
 
   // ── Tabs ─────────────────────────────────────────────────────────────────
+  let _lastChatTab = 'chat';  // remember which tab to go back to
+
   function switchTab(name) {
     document.querySelectorAll('.tab').forEach((t, i) => {
       t.classList.toggle('active', ['chat','form'][i] === name);
     });
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     document.getElementById('panel-' + name).classList.add('active');
+    if (name !== 'results') _lastChatTab = name;
   }
 
   // ── DOM refs ─────────────────────────────────────────────────────────────
@@ -361,11 +379,8 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
 
   // ── Markdown: lightweight renderer for agent bubbles ─────────────────────
   function renderMarkdown(text) {
-    // Escape HTML first to prevent injection
     const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    // Bold: **text**
     let html = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    // Convert lines starting with - or • into a list
     const lines = html.split('\n');
     const out = [];
     let inList = false;
@@ -408,13 +423,15 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   }
   function hideTyping() { document.getElementById('typing')?.remove(); }
 
-  // ── Chat: criteria card ───────────────────────────────────────────────────
+  // ── Chat: inline criteria card ────────────────────────────────────────────
+  // Renders as the last item in the message list — part of the conversation flow.
   function showChatCriteria(c) {
-    const list = document.getElementById('chat-criteria-list');
-    list.innerHTML = '';
+    // Remove any existing criteria card so we can re-render if criteria update
+    document.getElementById('inline-criteria-card')?.remove();
+
     const rows = [
       `Market: ${c.market_name || '—'}`,
-      `Cities: ${(c.allowed_cities || []).join(', ')}`,
+      `Cities: ${(c.allowed_cities || []).join(', ') || '—'}`,
       `Max price: $${(c.max_price || 0).toLocaleString()}`,
       `Min beds: ${c.min_beds ?? '—'}`,
       `Down payment: ${c.down_payment_pct != null ? (c.down_payment_pct*100).toFixed(0)+'%' : '—'}`,
@@ -422,8 +439,29 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
       c.max_hoa_fee === 0 ? 'No HOA' : c.max_hoa_fee != null ? `Max HOA: $${c.max_hoa_fee}/mo` : null,
       (c.preferred_home_types||[]).length ? `Types: ${c.preferred_home_types.join(', ')}` : null,
     ].filter(Boolean);
-    rows.forEach(t => { const li = document.createElement('li'); li.textContent = t; list.appendChild(li); });
-    document.getElementById('chat-criteria-card').style.display = 'block';
+
+    const listHtml = rows.map(t => `<li>${t}</li>`).join('');
+
+    const wrap = document.createElement('div');
+    wrap.id = 'inline-criteria-card';
+    wrap.className = 'criteria-msg';
+    wrap.innerHTML = `
+      <div class="criteria-msg-card">
+        <h3>✓ Criteria confirmed — does this look right?</h3>
+        <ul>${listHtml}</ul>
+        <div class="criteria-actions">
+          <button class="find-deals-btn" id="chat-find-btn" onclick="startRun()">Find Deals →</button>
+          <button class="btn-secondary" onclick="resetChat()" title="Start over">Start over</button>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin-top:8px;">Or keep typing to make changes</p>
+      </div>
+    `;
+
+    messagesEl.appendChild(wrap);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    // Keep input bar active for refinements
+    inputEl.placeholder = 'Criteria locked — type to refine or click Find Deals →';
   }
 
   // ── Chat: send message ────────────────────────────────────────────────────
@@ -469,8 +507,8 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
     const homeType = document.getElementById('f-home-type').value;
     const maxHoa = parseFloat(document.getElementById('f-max-hoa').value);
     const minCap = parseFloat(document.getElementById('f-min-cap').value);
-
     const minBaths = parseFloat(document.getElementById('f-min-baths').value);
+
     const criteria = {
       market_name: document.getElementById('f-market').value.trim(),
       allowed_cities: cities,
@@ -487,7 +525,6 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
       max_shortlist: parseInt(document.getElementById('f-max-shortlist').value),
     };
 
-    // Register the criteria directly (bypasses Claude)
     const res = await fetch('/api/run-form', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ session_id: SESSION_ID, criteria }),
@@ -498,40 +535,36 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
       return;
     }
     const { run_id } = await res.json();
+    _lastChatTab = 'form';
     showProgress();
     pollStatus(run_id);
   }
 
-  // ── Chat: new search ─────────────────────────────────────────────────────
+  // ── Chat: reset ───────────────────────────────────────────────────────────
   function resetChat() {
-    // Clear messages except the initial greeting
     messagesEl.innerHTML = `<div class="msg agent">
       <div class="avatar">🤖</div>
       <div class="bubble">What kind of investment property are you looking for? Tell me your budget, target cities, how many bedrooms you need, and how much you're putting down.</div>
     </div>`;
-    document.getElementById('chat-criteria-card').style.display = 'none';
-    document.getElementById('chat-find-btn').disabled = false;
-    // New session so Claude starts fresh
+    inputEl.placeholder = 'Describe what you\'re looking for…';
+    document.getElementById('chat-find-btn')?.closest('#inline-criteria-card')?.remove();
     localStorage.removeItem('scout_session');
     location.reload();
   }
 
   // ── Start run from chat ───────────────────────────────────────────────────
-  async function startRun(source) {
-    document.getElementById('chat-find-btn').disabled = true;
+  async function startRun() {
+    const findBtn = document.getElementById('chat-find-btn');
+    if (findBtn) findBtn.disabled = true;
     showProgress();
-    const urlsText = document.getElementById('chat-search-urls').value;
-    const searchUrls = urlsText.split('\n').map(s => s.trim()).filter(Boolean);
+
     const res = await fetch('/api/run', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        session_id: SESSION_ID,
-        scraperapi_search_urls: searchUrls.length ? searchUrls : null,
-      }),
+      body: JSON.stringify({ session_id: SESSION_ID }),
     });
     if (!res.ok) {
       hideProgress();
-      document.getElementById('chat-find-btn').disabled = false;
+      if (findBtn) findBtn.disabled = false;
       const err = await res.json().catch(() => ({}));
       appendMsg('agent', '⚠️ ' + (err.detail || 'Could not start pipeline.'));
       return;
@@ -550,16 +583,47 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
       const res = await fetch('/api/run/' + runId);
       const data = await res.json();
       progressText.textContent = data.progress || 'Running…';
-      if (data.status === 'done' && data.report_url) { window.location.href = data.report_url; return; }
+      if (data.status === 'done' && data.report_url) {
+        hideProgress();
+        showResults(data.report_url);
+        return;
+      }
       if (data.status === 'error') {
         hideProgress();
-        appendMsg('agent', '⚠️ Pipeline failed: ' + (data.error || 'Unknown error') + '\n\nYou can try again or click "New search" to start over.');
         const findBtn = document.getElementById('chat-find-btn');
         if (findBtn) findBtn.disabled = false;
+        // Re-show chat panel if we were on form
+        switchTab(_lastChatTab);
+        appendMsg('agent', '⚠️ Pipeline failed: ' + (data.error || 'Unknown error') + '\n\nTry again or click "New search" to start over.');
         return;
       }
     } catch { /* network blip — keep polling */ }
     setTimeout(() => pollStatus(runId), 2000);
+  }
+
+  // ── Results panel ─────────────────────────────────────────────────────────
+  function showResults(reportUrl) {
+    document.getElementById('report-frame').src = reportUrl;
+    document.getElementById('results-open-link').href = reportUrl;
+    document.getElementById('results-label').textContent = 'Deal Scout Results';
+
+    // Hide tabs while showing results
+    document.getElementById('main-tabs').style.display = 'none';
+
+    // Switch all panels off, results on
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-results').classList.add('active');
+  }
+
+  function backToSearch() {
+    document.getElementById('main-tabs').style.display = '';
+    document.getElementById('report-frame').src = '';
+    // Return to whichever tab triggered the run
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + _lastChatTab).classList.add('active');
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      t.classList.toggle('active', ['chat','form'][i] === _lastChatTab);
+    });
   }
 
   inputEl.focus();

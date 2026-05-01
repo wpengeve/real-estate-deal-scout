@@ -120,18 +120,20 @@ _TOOL_DEF: dict = {
 _SYSTEM_PROMPT = """\
 You are a real estate investment advisor helping users set up their property search criteria.
 
-Goal: understand what they're looking for, then call set_investment_criteria with the structured criteria.
+Workflow:
+1. Ask the user focused questions to collect all required fields. Ask ONE question at a time.
+   Required: max_price, min_beds, target city/market, down_payment_pct.
+2. Once you have all required fields, call set_investment_criteria.
+3. After calling the tool, confirm by saying something like:
+   "Got it — here's what I'll search for: [2-3 key criteria]. Click **Find Deals** to start, \
+or tell me if anything needs changing."
 
-Ask follow-up questions ONLY if you're missing any required fields: max_price, min_beds, \
-target cities, or down_payment_pct.
-
-For optional fields (loan rate, HOA restriction, property type), use sensible defaults \
-if not mentioned — don't interrogate the user.
-
-After calling set_investment_criteria, summarize the criteria in 3-4 bullet points \
-and tell the user to type 'done' to confirm or describe any changes.
-
-Be concise — investors are busy.\
+Rules:
+- Do NOT call the tool until you have all required fields from the user.
+- Do NOT ask about optional fields (loan rate, HOA, property type) unless the user brings them up.
+- Use sensible defaults for optional fields: loan rate 5.25%, no HOA restriction, any type.
+- For a metro area, include the major city plus suburbs in allowed_cities.
+- Be concise — investors are busy.\
 """
 
 
@@ -259,8 +261,15 @@ def _build_config(extracted: dict, base: InvestmentConfig) -> InvestmentConfig:
 
     fa = base.financial_assumptions
 
-    # Override fetch config when search URLs are explicitly provided (multi-market support)
+    # Determine fetch config.
+    # If explicit search URLs were provided, use them.
+    # If the market changed from the base config's market, clear the base URLs so the
+    # pipeline's auto-resolver fetches URLs for the correct city via Redfin autocomplete.
+    # Otherwise (same market), reuse the base fetch config as-is.
     scraperapi_urls = extracted.get("scraperapi_search_urls") or []
+    market_changed = (
+        extracted["market_name"].strip().lower() != base.output.market.strip().lower()
+    )
     if scraperapi_urls:
         fetch = FetchConfig(
             data_source="scraperapi",
@@ -271,6 +280,9 @@ def _build_config(extracted: dict, base: InvestmentConfig) -> InvestmentConfig:
             redfin_max_homes=base.fetch.redfin_max_homes,
             scraperapi_search_urls=scraperapi_urls,
         )
+    elif market_changed and base.fetch.data_source == "scraperapi":
+        # Different market — clear pre-configured URLs so pipeline auto-resolves
+        fetch = base.fetch.model_copy(update={"scraperapi_search_urls": []})
     else:
         fetch = base.fetch
 

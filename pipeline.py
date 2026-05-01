@@ -23,7 +23,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from tools.analyze import analyze_all
 from tools.enrich import enrich_all
-from tools.fetch import fetch_listings_async
+from tools.fetch import fetch_listings_async, resolve_city_urls
 from tools.mock_ranker import mock_rank_and_narrate
 from tools.models import FlaggedListing, InvestmentConfig, Shortlist
 from tools.ollama_ranker import ollama_rank_and_narrate
@@ -61,7 +61,34 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
 
         # ── Stage 1: Fetch ────────────────────────────────────────────────────
         progress.update(task, description="[1/5] Fetching listings...")
-        raw = await fetch_listings_async(market, config.fetch)
+
+        # Auto-resolve Redfin search URLs when none are configured but we have
+        # a city list. This lets users search any market without pasting URLs.
+        fetch_config = config.fetch
+        if (
+            fetch_config.data_source == "scraperapi"
+            and not fetch_config.scraperapi_search_urls
+            and config.criteria.allowed_cities
+        ):
+            console.log("[dim]Auto-resolving Redfin search URLs for market...[/dim]")
+            resolved = await resolve_city_urls(
+                config.criteria.allowed_cities,
+                max_price=config.criteria.max_price,
+                min_beds=config.criteria.min_beds,
+                home_types=config.criteria.preferred_home_types,
+            )
+            if resolved:
+                console.log(f"[dim]Resolved {len(resolved)} Redfin URL(s)[/dim]")
+                fetch_config = fetch_config.model_copy(
+                    update={"scraperapi_search_urls": resolved}
+                )
+            else:
+                console.print(
+                    "[yellow]Could not auto-resolve Redfin URLs for this market. "
+                    "Try providing search URLs manually.[/yellow]"
+                )
+
+        raw = await fetch_listings_async(market, fetch_config)
         run_log["listings_fetched"] = len(raw)
         console.log(f"[dim]Fetched {len(raw)} listings[/dim]")
 
