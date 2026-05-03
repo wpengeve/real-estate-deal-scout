@@ -60,6 +60,15 @@ class UserSession(Base):
     user = relationship("User", back_populates="sessions")
 
 
+class ChatSessionRecord(Base):
+    __tablename__ = "chat_sessions"
+
+    session_id = Column(String, primary_key=True)
+    messages_json = Column(Text, nullable=False, default="[]")
+    extracted_json = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class ReportRun(Base):
     __tablename__ = "report_runs"
 
@@ -204,3 +213,73 @@ def get_user_runs(db: Session, user_id: int, limit: int = 20) -> list[ReportRun]
         .limit(limit)
         .all()
     )
+
+
+# ── Chat session persistence ───────────────────────────────────────────────────
+
+def _serialize_messages(messages: list[dict]) -> list[dict]:
+    """Convert Anthropic SDK content blocks to plain dicts for JSON storage."""
+    result = []
+    for msg in messages:
+        content = msg["content"]
+        if isinstance(content, list):
+            serialized: list[dict] = []
+            for block in content:
+                if hasattr(block, "model_dump"):
+                    serialized.append(block.model_dump())
+                elif isinstance(block, dict):
+                    serialized.append(block)
+                else:
+                    serialized.append({"type": "text", "text": str(block)})
+            result.append({"role": msg["role"], "content": serialized})
+        else:
+            result.append(msg)
+    return result
+
+
+def save_chat_session(
+    db: Session,
+    session_id: str,
+    messages: list[dict],
+    extracted: dict | None,
+) -> None:
+    """Upsert chat session state."""
+    serialized = _serialize_messages(messages)
+    record = db.query(ChatSessionRecord).filter(
+        ChatSessionRecord.session_id == session_id
+    ).first()
+    now = datetime.now(timezone.utc)
+    if record:
+        record.messages_json = json.dumps(serialized)
+        record.extracted_json = json.dumps(extracted) if extracted else None
+        record.updated_at = now
+    else:
+        db.add(ChatSessionRecord(
+            session_id=session_id,
+            messages_json=json.dumps(serialized),
+            extracted_json=json.dumps(extracted) if extracted else None,
+            updated_at=now,
+        ))
+    db.commit()
+
+
+def load_chat_session(
+    db: Session, session_id: str
+) -> tuple[list[dict], dict | None] | None:
+    """Load chat session state. Returns (messages, extracted) or None if not found."""
+    record = db.query(ChatSessionRecord).filter(
+        ChatSessionRecord.session_id == session_id
+    ).first()
+    if not record:
+        return None
+    messages = json.loads(record.messages_json)
+    extracted = json.loads(record.extracted_json) if record.extracted_json else None
+    return messages, extracted
+
+
+def delete_chat_session(db: Session, session_id: str) -> None:
+    """Delete a chat session record."""
+    db.query(ChatSessionRecord).filter(
+        ChatSessionRecord.session_id == session_id
+    ).delete()
+    db.commit()

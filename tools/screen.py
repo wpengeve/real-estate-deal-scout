@@ -19,6 +19,14 @@ def screen_listing(listing: RawListing, criteria: ScreeningCriteria) -> ScreenRe
         return ScreenResult(listing=listing, passed=False, reason="beds_unknown")
     if listing.price > criteria.max_price:
         return ScreenResult(listing=listing, passed=False, reason="price_too_high")
+    if criteria.min_price is not None and listing.price < criteria.min_price:
+        return ScreenResult(listing=listing, passed=False, reason="price_too_low")
+    if (
+        criteria.max_year_built is not None
+        and listing.year_built is not None
+        and listing.year_built > criteria.max_year_built
+    ):
+        return ScreenResult(listing=listing, passed=False, reason="new_construction_excluded")
     if listing.beds < criteria.min_beds:
         return ScreenResult(listing=listing, passed=False, reason="beds_below_min")
     if (

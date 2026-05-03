@@ -37,6 +37,13 @@ _TOOL_DEF: dict = {
                 "type": "number",
                 "description": "Maximum purchase price in USD (e.g. 1500000 for $1.5M)",
             },
+            "min_price": {
+                "type": ["number", "null"],
+                "description": (
+                    "Minimum purchase price in USD. Set when user gives a price range "
+                    "(e.g. '$1M–$1.65M' → min_price=1000000). Omit if no lower bound."
+                ),
+            },
             "min_beds": {
                 "type": "integer",
                 "description": "Minimum number of bedrooms",
@@ -97,8 +104,9 @@ _TOOL_DEF: dict = {
             "min_cap_rate": {
                 "type": ["number", "null"],
                 "description": (
-                    "Minimum acceptable cap rate. For high-cost markets like Seattle, "
-                    "0.02 is realistic. Use null if no filter."
+                    "Minimum acceptable cap rate as decimal (e.g. 0.03 for 3%). "
+                    "Only set this if the user explicitly asks for a minimum cap rate. "
+                    "Default: null (no filter). Do NOT infer or apply automatically."
                 ),
             },
             "require_primary_suite": {
@@ -106,6 +114,22 @@ _TOOL_DEF: dict = {
                 "description": (
                     "Set true when user asks for a master bedroom, primary suite, "
                     "or en-suite bedroom. Filters out listings confirmed to lack one."
+                ),
+            },
+            "max_year_built": {
+                "type": ["integer", "null"],
+                "description": (
+                    "Exclude homes built after this year. Use when user says "
+                    "'no new construction' (set to 2019) or gives a specific cutoff. "
+                    "Omit if not mentioned."
+                ),
+            },
+            "min_school_score": {
+                "type": ["number", "null"],
+                "description": (
+                    "Minimum school proficiency score 0–100. Maps from GreatSchools-style "
+                    "ratings: 6/10 → 55, 7/10 → 65, 8/10 → 75. Set when user mentions "
+                    "school rating or school zone requirements. Omit if not mentioned."
                 ),
             },
             "max_shortlist": {
@@ -291,6 +315,7 @@ def _build_config(extracted: dict, base: InvestmentConfig) -> InvestmentConfig:
         enrich=base.enrich,
         criteria=ScreeningCriteria(
             max_price=extracted["max_price"],
+            min_price=extracted.get("min_price"),
             min_beds=extracted["min_beds"],
             max_dom=base.criteria.max_dom,
             target_cap_rate=extracted.get("target_cap_rate", base.criteria.target_cap_rate),
@@ -302,6 +327,8 @@ def _build_config(extracted: dict, base: InvestmentConfig) -> InvestmentConfig:
             min_cap_rate=extracted.get("min_cap_rate"),
             preferred_home_types=extracted.get("preferred_home_types"),
             allowed_cities=extracted["allowed_cities"],
+            max_year_built=extracted.get("max_year_built"),
+            min_school_score=extracted.get("min_school_score"),
         ),
         financial_assumptions=FinancialAssumptions(
             down_payment_pct=extracted["down_payment_pct"],

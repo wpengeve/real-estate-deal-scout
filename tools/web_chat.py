@@ -18,9 +18,13 @@ _MODEL = "claude-sonnet-4-6"
 class ChatSession:
     """Server-side conversation state for one user session."""
 
-    def __init__(self) -> None:
-        self.messages: list[dict] = []
-        self.extracted: dict | None = None  # last criteria extracted by Claude
+    def __init__(
+        self,
+        messages: list[dict] | None = None,
+        extracted: dict | None = None,
+    ) -> None:
+        self.messages: list[dict] = messages or []
+        self.extracted: dict | None = extracted
 
     async def send(self, user_text: str) -> dict:
         """

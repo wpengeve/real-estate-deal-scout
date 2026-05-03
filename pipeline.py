@@ -127,6 +127,24 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
             f"[dim]Financial analysis: {len(successful)}/{len(analyzed)} succeeded[/dim]"
         )
 
+        # Post-enrich school score filter (optional — requires school enrichment)
+        if config.criteria.min_school_score is not None:
+            before = len(analyzed)
+            def _best_school_score(a) -> float | None:
+                schools = a.listing.nearby_schools
+                if not schools:
+                    return None
+                scores = [s.proficiency_score for s in schools if s.proficiency_score is not None]
+                return max(scores) if scores else None
+            analyzed = [
+                a for a in analyzed
+                if _best_school_score(a) is None  # unknown = don't discard
+                or _best_school_score(a) >= config.criteria.min_school_score
+            ]
+            dropped = before - len(analyzed)
+            if dropped:
+                console.log(f"[dim]School filter: {dropped} below score {config.criteria.min_school_score:.0f} removed[/dim]")
+
         # Post-enrich primary suite filter (optional — requires scraping to have run)
         if config.criteria.require_primary_suite:
             before = len(analyzed)

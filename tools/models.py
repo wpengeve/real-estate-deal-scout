@@ -33,6 +33,7 @@ class EnrichConfig(BaseModel):
 
 class ScreeningCriteria(BaseModel):
     max_price: float
+    min_price: float | None = None            # e.g. 1000000; None = no lower bound
     min_beds: int
     min_baths: float | None = None            # e.g. 2.0; None = no filter
     max_dom: int
@@ -44,6 +45,8 @@ class ScreeningCriteria(BaseModel):
     preferred_home_types: list[str] | None = None  # None = no filter; e.g. ["Single Family"]
     allowed_cities: list[str] | None = None   # None = no filter; e.g. ["Seattle", "Bellevue"]
     require_primary_suite: bool = False       # filter listings without a primary bedroom
+    max_year_built: int | None = None         # exclude homes built after this year (e.g. 2019 = no new construction)
+    min_school_score: float | None = None     # min avg school proficiency score 0–100; filter post-enrichment
 
 
 class FinancialAssumptions(BaseModel):

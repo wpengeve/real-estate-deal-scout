@@ -639,6 +639,25 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   }
   authModal.addEventListener('click', e => { if (e.target === authModal) closeAuthModal(); });
 
+  // ── Restore chat history on page load ──────────────────────────────────
+  (async function restoreChat() {
+    try {
+      const res = await fetch('/api/chat/history?session_id=' + encodeURIComponent(SESSION_ID));
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.messages || data.messages.length === 0) return;
+
+      // Clear the default greeting — replay actual history
+      messagesEl.innerHTML = '';
+      for (const msg of data.messages) {
+        appendMsg(msg.role === 'assistant' ? 'agent' : 'user', msg.text);
+      }
+      if (data.criteria) showChatCriteria(data.criteria);
+    } catch {
+      // Silently ignore — history restore is best-effort
+    }
+  })();
+
   async function requestMagicLink() {
     const email = document.getElementById('auth-email').value.trim();
     if (!email || !email.includes('@')) { alert('Please enter a valid email.'); return; }

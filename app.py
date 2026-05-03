@@ -40,12 +40,15 @@ load_dotenv()
 from db import (  # noqa: E402
     create_auth_token,
     create_session,
+    delete_chat_session,
     delete_session,
     get_db,
     get_or_create_user,
     get_session_user,
     get_user_runs,
     init_db,
+    load_chat_session,
+    save_chat_session,
     upsert_report_run,
 )
 from pipeline import run as run_pipeline  # noqa: E402
@@ -189,10 +192,22 @@ async def chat(req: ChatRequest):
             detail="Chat requires an Anthropic API key. Use the Manual Setup tab to run a scan without one.",
         )
     import anthropic as _anthropic
+
+    # Load session from DB if not already in memory
     if req.session_id not in _chat_sessions:
-        _chat_sessions[req.session_id] = ChatSession()
+        db = get_db()
+        try:
+            saved = load_chat_session(db, req.session_id)
+        finally:
+            db.close()
+        if saved:
+            _chat_sessions[req.session_id] = ChatSession(messages=saved[0], extracted=saved[1])
+        else:
+            _chat_sessions[req.session_id] = ChatSession()
+
+    session = _chat_sessions[req.session_id]
     try:
-        return await _chat_sessions[req.session_id].send(req.message)
+        result = await session.send(req.message)
     except _anthropic.AuthenticationError:
         raise HTTPException(
             status_code=503,
@@ -200,6 +215,59 @@ async def chat(req: ChatRequest):
         )
     except _anthropic.APIError as e:
         raise HTTPException(status_code=502, detail=f"Anthropic API error: {e}")
+
+    # Persist updated state to DB
+    db = get_db()
+    try:
+        save_chat_session(db, req.session_id, session.messages, session.extracted)
+    finally:
+        db.close()
+
+    return result
+
+
+@app.get("/api/chat/history")
+async def chat_history(session_id: str):
+    """Return persisted chat history for a session so the UI can restore it on page load."""
+    # Check in-memory cache first
+    session = _chat_sessions.get(session_id)
+    if session:
+        return {"messages": _visible_messages(session.messages), "criteria": session.extracted}
+
+    db = get_db()
+    try:
+        saved = load_chat_session(db, session_id)
+    finally:
+        db.close()
+
+    if not saved:
+        return {"messages": [], "criteria": None}
+    return {"messages": _visible_messages(saved[0]), "criteria": saved[1]}
+
+
+def _visible_messages(messages: list[dict]) -> list[dict]:
+    """Return only user/assistant text turns — strip tool_result plumbing."""
+    visible = []
+    for msg in messages:
+        if msg["role"] == "user":
+            content = msg["content"]
+            # Skip tool_result messages (criteria acknowledgement plumbing)
+            if isinstance(content, list) and any(
+                isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+            ):
+                continue
+            visible.append({"role": "user", "text": content if isinstance(content, str) else ""})
+        elif msg["role"] == "assistant":
+            content = msg["content"]
+            texts = []
+            if isinstance(content, list):
+                for block in content:
+                    t = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                    if t == "text":
+                        texts.append(block["text"] if isinstance(block, dict) else block.text)
+            if texts:
+                visible.append({"role": "assistant", "text": "\n".join(texts)})
+    return visible
 
 
 # ── Pipeline runs ─────────────────────────────────────────────────────────────
