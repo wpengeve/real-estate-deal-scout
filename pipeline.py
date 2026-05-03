@@ -354,7 +354,35 @@ Be specific about the financials. Rank by overall investment quality \
 Properties with financial_data_available=false should rank lower. \
 Properties with HIGH risk should be noted prominently in the narrative."""
 
-    output_schema = _resolve_schema_refs(Shortlist.model_json_schema())
+    # Use a minimal schema for the tool call — the full inlined Shortlist schema is
+    # too large and causes Claude to omit the required `deals` array.
+    # We only need address + narrative + risk_level; all numeric fields are overwritten
+    # from pipeline data immediately after.
+    minimal_schema = {
+        "type": "object",
+        "required": ["deals", "run_summary"],
+        "properties": {
+            "deals": {
+                "type": "array",
+                "description": "Ranked list of investment opportunities",
+                "items": {
+                    "type": "object",
+                    "required": ["rank", "address", "price", "risk_level", "narrative"],
+                    "properties": {
+                        "rank":      {"type": "integer"},
+                        "address":   {"type": "string"},
+                        "price":     {"type": "number"},
+                        "risk_level":{"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
+                        "narrative": {"type": "string", "description": "2-3 sentence investment thesis"},
+                    },
+                },
+            },
+            "run_summary": {
+                "type": "string",
+                "description": "One sentence summarising how many properties were reviewed and selected",
+            },
+        },
+    }
 
     response = await client.messages.create(
         model=_CLAUDE_MODEL,
@@ -363,15 +391,30 @@ Properties with HIGH risk should be noted prominently in the narrative."""
             {
                 "name": "produce_shortlist",
                 "description": "Output the final ranked shortlist of investment opportunities",
-                "input_schema": output_schema,
+                "input_schema": minimal_schema,
             }
         ],
         tool_choice={"type": "tool", "name": "produce_shortlist"},
         messages=[{"role": "user", "content": user_prompt}],
     )
 
-    shortlist_data = response.content[0].input
-    shortlist_data["market"] = config.output.market
+    raw = response.content[0].input
+    # Build a valid Shortlist from the minimal response; numeric fields are
+    # overwritten from pipeline data in the loop below.
+    shortlist_data = {
+        "market": config.output.market,
+        "run_summary": raw.get("run_summary", ""),
+        "deals": [
+            {
+                "rank":       d.get("rank", i + 1),
+                "address":    d.get("address", ""),
+                "price":      d.get("price", 0),
+                "risk_level": d.get("risk_level", "MEDIUM"),
+                "narrative":  d.get("narrative", ""),
+            }
+            for i, d in enumerate(raw.get("deals") or [])
+        ],
+    }
     shortlist = Shortlist.model_validate(shortlist_data)
 
     # Overwrite all pipeline-derived fields from authoritative pipeline data.
