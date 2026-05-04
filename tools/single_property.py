@@ -82,6 +82,15 @@ def _parse_raw_listing(html: str, url: str, features: ListingFeatures) -> RawLis
     Uses embedded JSON data patterns that Redfin includes server-side.
     Returns None if price cannot be determined (required field).
     """
+    # ── og:description — reliable fallback for beds/baths/sqft/price ──────────
+    # Redfin og:description is always: "3 bed, 2 bath, 1,400 sq ft house..."
+    og_desc = ""
+    m = re.search(r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']+)["\']', html)
+    if not m:
+        m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:description["\']', html)
+    if m:
+        og_desc = m.group(1)
+
     # ── Price ──────────────────────────────────────────────────────────────────
     price = None
     for pat in [
@@ -89,12 +98,23 @@ def _parse_raw_listing(html: str, url: str, features: ListingFeatures) -> RawLis
         r'"price"\s*:\s*(\d{5,9})',       # 5–9 digits avoids matching zip codes
         r'"initialListingPrice"\s*:\s*\{\s*"amount"\s*:\s*(\d+)',
         r'"listPrice"\s*:\s*(\d+)',
+        r'\$(\d[\d,]+)\s*(?:home|house|bed|listing)',  # "$850,000 home"
     ]:
-        m = re.search(pat, html)
+        m = re.search(pat, html, re.I)
         if m:
             try:
-                price = float(m.group(1))
-                break
+                price = float(m.group(1).replace(",", ""))
+                if price > 10000:  # sanity check
+                    break
+                price = None
+            except ValueError:
+                pass
+    # og:description sometimes has price: "Listed for $850,000"
+    if not price and og_desc:
+        m = re.search(r'\$(\d[\d,]+)', og_desc)
+        if m:
+            try:
+                price = float(m.group(1).replace(",", ""))
             except ValueError:
                 pass
 
@@ -104,12 +124,28 @@ def _parse_raw_listing(html: str, url: str, features: ListingFeatures) -> RawLis
 
     # ── Beds ───────────────────────────────────────────────────────────────────
     beds = None
-    for pat in [r'"beds"\s*:\s*(\d+)', r'"numBeds"\s*:\s*(\d+)', r'"bedrooms"\s*:\s*(\d+)']:
-        m = re.search(pat, html)
+    for pat in [
+        r'"beds"\s*:\s*(\d+)',
+        r'"numBeds"\s*:\s*(\d+)',
+        r'"bedrooms"\s*:\s*(\d+)',
+        r'"numberOfBedrooms"\s*:\s*(\d+)',
+        r'(\d+)\s*(?:bed|bedroom)s?',  # "3 beds"
+    ]:
+        m = re.search(pat, html, re.I)
         if m:
             try:
                 beds = int(m.group(1))
-                break
+                if 1 <= beds <= 20:
+                    break
+                beds = None
+            except ValueError:
+                pass
+    # og:description fallback: "3 bed" or "3 beds"
+    if beds is None and og_desc:
+        m = re.search(r'(\d+)\s*bed', og_desc, re.I)
+        if m:
+            try:
+                beds = int(m.group(1))
             except ValueError:
                 pass
 
@@ -120,12 +156,22 @@ def _parse_raw_listing(html: str, url: str, features: ListingFeatures) -> RawLis
         r'"baths"\s*:\s*([\d.]+)',
         r'"bathrooms"\s*:\s*([\d.]+)',
         r'"numBathsFull"\s*:\s*(\d+)',
+        r'([\d.]+)\s*(?:bath|bathroom)s?',
     ]:
-        m = re.search(pat, html)
+        m = re.search(pat, html, re.I)
         if m:
             try:
                 baths = float(m.group(1))
-                break
+                if 0.5 <= baths <= 20:
+                    break
+                baths = None
+            except ValueError:
+                pass
+    if baths is None and og_desc:
+        m = re.search(r'([\d.]+)\s*bath', og_desc, re.I)
+        if m:
+            try:
+                baths = float(m.group(1))
             except ValueError:
                 pass
 
@@ -136,12 +182,22 @@ def _parse_raw_listing(html: str, url: str, features: ListingFeatures) -> RawLis
         r'"sqft"\s*:\s*(\d+)',
         r'"livingArea"\s*:\s*([\d.]+)',
         r'"floorSizeValue"\s*:\s*([\d.]+)',
+        r'([\d,]+)\s*sq\.?\s*ft',
     ]:
-        m = re.search(pat, html)
+        m = re.search(pat, html, re.I)
         if m:
             try:
-                sqft = int(float(m.group(1)))
-                break
+                sqft = int(float(m.group(1).replace(",", "")))
+                if 100 <= sqft <= 30000:
+                    break
+                sqft = None
+            except ValueError:
+                pass
+    if sqft is None and og_desc:
+        m = re.search(r'([\d,]+)\s*sq\.?\s*ft', og_desc, re.I)
+        if m:
+            try:
+                sqft = int(m.group(1).replace(",", ""))
             except ValueError:
                 pass
 
