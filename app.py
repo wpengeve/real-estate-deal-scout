@@ -52,6 +52,7 @@ from db import (  # noqa: E402
     upsert_report_run,
 )
 from pipeline import run as run_pipeline, run_single_property  # noqa: E402
+from tools.fetch import resolve_address_to_url  # noqa: E402
 from tools.models import InvestmentConfig
 from tools.web_chat import ChatSession
 
@@ -346,6 +347,19 @@ async def view_report(run_id: str):
     if not report_path.exists():
         raise HTTPException(status_code=404, detail="Report not found.")
     return FileResponse(report_path, media_type="text/html")
+
+
+# ── Address resolution ────────────────────────────────────────────────────────
+
+class ResolveAddressRequest(BaseModel):
+    address: str
+
+
+@app.post("/api/resolve-address")
+async def resolve_address(req: ResolveAddressRequest):
+    """Resolve a plain address to a Redfin listing URL."""
+    url = await resolve_address_to_url(req.address)
+    return {"url": url}
 
 
 # ── Single-property analysis ──────────────────────────────────────────────────

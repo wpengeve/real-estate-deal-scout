@@ -638,6 +638,38 @@ def _lookup_city(city: str) -> tuple[str, str]:
     return "", ""
 
 
+async def resolve_address_to_url(address: str) -> str | None:
+    """
+    Resolve a plain address string to a Redfin listing URL.
+
+    Uses Redfin's location-autocomplete endpoint (via ScraperAPI to bypass bot
+    detection). Returns the full Redfin URL or None if not found.
+    """
+    if not _SCRAPERAPI_KEY:
+        return None
+    query = address.strip().replace(" ", "+")
+    autocomplete_url = f"{_REDFIN_AUTOCOMPLETE_URL}?location={query}&v=2"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://api.scraperapi.com/",
+                params={"api_key": _SCRAPERAPI_KEY, "url": autocomplete_url},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            results = (data.get("payload") or {}).get("resultList") or []
+            # Find the first result that looks like a property listing page
+            for r in results:
+                url_path = str(r.get("url", ""))
+                if any(seg in url_path for seg in ["/home/", "/condo/", "/townhouse/", "/other/"]):
+                    full_url = "https://www.redfin.com" + url_path
+                    logger.info("Resolved address %r → %s", address, full_url)
+                    return full_url
+    except Exception as e:
+        logger.warning("Address resolution failed for %r: %s", address, e)
+    return None
+
+
 async def _scraperapi_autocomplete(city: str, client: httpx.AsyncClient) -> tuple[str, str]:
     """
     Use ScraperAPI to call Redfin's location-autocomplete endpoint.

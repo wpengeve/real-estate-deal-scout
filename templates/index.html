@@ -470,38 +470,68 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
     return m ? m[0] : null;
   }
 
+  function looksLikeAddress(text) {
+    // Starts with a house number and contains a street suffix
+    return /^\d+\s+\w/.test(text.trim()) &&
+      /\b(st|ave|blvd|rd|dr|ln|way|pl|ct|cir|ter|hwy|pkwy|sq)\b/i.test(text);
+  }
+
+  async function analyzePropertyUrl(url) {
+    showProgress('Fetching and analyzing listing...');
+    try {
+      const res = await fetch('/api/analyze-property', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ session_id: SESSION_ID, url }),
+      });
+      if (!res.ok) {
+        hideProgress();
+        const err = await res.json().catch(() => ({}));
+        appendMsg('agent', '⚠️ ' + (err.detail || 'Could not analyze property.'));
+        return;
+      }
+      const { run_id } = await res.json();
+      _lastChatTab = 'chat';
+      pollStatus(run_id);
+    } catch {
+      hideProgress();
+      appendMsg('agent', '⚠️ Could not reach the server.');
+    }
+  }
+
   async function sendMessage() {
     const text = inputEl.value.trim(); if (!text) return;
     inputEl.value = ''; inputEl.style.height = 'auto';
     sendBtn.disabled = true;
     appendMsg('user', text);
 
-    // Detect Redfin listing URL — bypass chat, go straight to property analysis
+    // 1. Direct Redfin URL — analyze immediately
     const redfinUrl = extractRedfinUrl(text);
     if (redfinUrl) {
-      appendMsg('agent', '🏠 Got a Redfin listing — analyzing this property with your current financial settings...');
-      showProgress('Fetching and analyzing listing...');
-      try {
-        const res = await fetch('/api/analyze-property', {
-          method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ session_id: SESSION_ID, url: redfinUrl }),
-        });
-        if (!res.ok) {
-          hideProgress();
-          const err = await res.json().catch(() => ({}));
-          appendMsg('agent', '⚠️ ' + (err.detail || 'Could not analyze property.'));
-          return;
-        }
-        const { run_id } = await res.json();
-        _lastChatTab = 'chat';
-        pollStatus(run_id);
-      } catch {
-        hideProgress();
-        appendMsg('agent', '⚠️ Could not reach the server.');
-      } finally {
-        sendBtn.disabled = false; inputEl.focus();
-      }
+      appendMsg('agent', '🏠 Got a Redfin listing — analyzing this property...');
+      await analyzePropertyUrl(redfinUrl);
+      sendBtn.disabled = false; inputEl.focus();
       return;
+    }
+
+    // 2. Looks like a street address — try to resolve to a Redfin URL
+    if (looksLikeAddress(text)) {
+      appendMsg('agent', '🔍 Looking up that address on Redfin...');
+      try {
+        const res = await fetch('/api/resolve-address', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ address: text }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.url) {
+            appendMsg('agent', `🏠 Found it — analyzing ${text}...`);
+            await analyzePropertyUrl(data.url);
+            sendBtn.disabled = false; inputEl.focus();
+            return;
+          }
+        }
+      } catch { /* fall through to chat */ }
+      // Resolution failed — let chat handle it
     }
 
     showTyping();
