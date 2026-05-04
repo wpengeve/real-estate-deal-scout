@@ -44,3 +44,4 @@ Thumbs.db
 .coverage
 htmlcov/
 .gstack/
+data/scraperapi_cache/

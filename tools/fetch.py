@@ -17,10 +17,12 @@ To use the csv backend:
 """
 import asyncio
 import csv
+import hashlib
 import io
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 import httpx
@@ -34,6 +36,36 @@ logger = logging.getLogger(__name__)
 _SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY")
 _SCRAPERAPI_URL = "https://api.scraperapi.com/structured/redfin/search"
 _SCRAPERAPI_TIMEOUT = 60.0  # structured endpoints can be slow
+
+# Response cache — avoids burning credits on repeated runs with the same criteria.
+# Each structured Redfin call costs 25 credits; caching makes reruns essentially free.
+_CACHE_DIR = Path("data/scraperapi_cache")
+_CACHE_TTL_SECONDS = int(os.getenv("SCRAPERAPI_CACHE_TTL_HOURS", "6")) * 3600
+
+
+def _cache_path(url: str) -> Path:
+    key = hashlib.md5(url.encode()).hexdigest()
+    return _CACHE_DIR / f"{key}.json"
+
+
+def _cache_get(url: str) -> dict | None:
+    """Return cached response JSON if present and not expired, else None."""
+    path = _cache_path(url)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        if time.time() - data["cached_at"] > _CACHE_TTL_SECONDS:
+            return None
+        return data["response"]
+    except Exception:
+        return None
+
+
+def _cache_set(url: str, response: dict) -> None:
+    """Write response to cache."""
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    _cache_path(url).write_text(json.dumps({"cached_at": time.time(), "response": response}))
 
 _DEFAULT_FIXTURES = Path(__file__).parent.parent / "fixtures" / "listings.json"
 
@@ -541,7 +573,7 @@ async def resolve_city_urls(
     max_price: float,
     min_beds: int,
     home_types: list[str] | None = None,
-    max_cities: int = 6,
+    max_cities: int = 3,
 ) -> list[str]:
     """
     Auto-resolve Redfin search URLs from plain city names.
@@ -671,23 +703,30 @@ async def _fetch_from_scraperapi(fetch_config: FetchConfig) -> list[RawListing]:
 
     async with httpx.AsyncClient(timeout=_SCRAPERAPI_TIMEOUT) as client:
         for search_url in urls:
-            logger.info("ScraperAPI: fetching %s", search_url)
-            try:
-                resp = await client.get(
-                    _SCRAPERAPI_URL,
-                    params={"api_key": _SCRAPERAPI_KEY, "url": search_url},
-                )
-                resp.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                raise RuntimeError(
-                    f"ScraperAPI returned HTTP {e.response.status_code} for {search_url}"
-                ) from e
-            except httpx.TimeoutException as e:
-                raise RuntimeError(
-                    f"ScraperAPI timed out for {search_url}"
-                ) from e
+            cached = _cache_get(search_url)
+            if cached is not None:
+                logger.info("ScraperAPI: cache hit for %s (skipping API call)", search_url)
+                raw_json = cached
+            else:
+                logger.info("ScraperAPI: fetching %s", search_url)
+                try:
+                    resp = await client.get(
+                        _SCRAPERAPI_URL,
+                        params={"api_key": _SCRAPERAPI_KEY, "url": search_url},
+                    )
+                    resp.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    raise RuntimeError(
+                        f"ScraperAPI returned HTTP {e.response.status_code} for {search_url}"
+                    ) from e
+                except httpx.TimeoutException as e:
+                    raise RuntimeError(
+                        f"ScraperAPI timed out for {search_url}"
+                    ) from e
+                raw_json = resp.json()
+                _cache_set(search_url, raw_json)
 
-            listings = normalize_all(resp.json())
+            listings = normalize_all(raw_json)
             logger.info("ScraperAPI: %d listings from %s", len(listings), search_url)
 
             # Deduplicate across multiple search URLs by address
