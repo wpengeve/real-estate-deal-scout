@@ -51,7 +51,7 @@ from db import (  # noqa: E402
     save_chat_session,
     upsert_report_run,
 )
-from pipeline import run as run_pipeline  # noqa: E402
+from pipeline import run as run_pipeline, run_single_property  # noqa: E402
 from tools.models import InvestmentConfig
 from tools.web_chat import ChatSession
 
@@ -346,6 +346,84 @@ async def view_report(run_id: str):
     if not report_path.exists():
         raise HTTPException(status_code=404, detail="Report not found.")
     return FileResponse(report_path, media_type="text/html")
+
+
+# ── Single-property analysis ──────────────────────────────────────────────────
+
+class AnalyzePropertyRequest(BaseModel):
+    session_id: str
+    url: str
+
+
+@app.post("/api/analyze-property")
+async def analyze_property(
+    req: AnalyzePropertyRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Analyze a single Redfin listing URL using the session's financial criteria."""
+    if not req.url or "redfin.com" not in req.url:
+        raise HTTPException(status_code=422, detail="Please provide a valid Redfin listing URL.")
+
+    # Use session criteria if available, otherwise fall back to base config
+    session = _chat_sessions.get(req.session_id)
+    if session and session.extracted:
+        config = session.build_config(_load_base_config())
+    else:
+        # Try loading from DB
+        saved = load_chat_session(db, req.session_id)
+        if saved and saved[1]:
+            from tools.chat_intake import _build_config
+            config = _build_config(saved[1], _load_base_config())
+        else:
+            config = _load_base_config()
+
+    run_id = uuid.uuid4().hex[:8]
+    _runs[run_id] = {"status": "running", "progress": "Fetching listing..."}
+    upsert_report_run(
+        db, run_id,
+        user_id=user.id if user else None,
+        market=req.url,
+        status="running",
+        criteria={"url": req.url},
+    )
+    asyncio.create_task(_run_single_property_bg(run_id, req.url, config, user_id=user.id if user else None))
+    return {"run_id": run_id}
+
+
+async def _run_single_property_bg(
+    run_id: str,
+    url: str,
+    config: InvestmentConfig,
+    user_id: int | None = None,
+) -> None:
+    try:
+        _runs[run_id]["progress"] = "Fetching and analyzing listing..."
+        shortlist = await run_single_property(url, config)
+
+        _OUTPUTS_DIR.mkdir(exist_ok=True)
+        report_path = _OUTPUTS_DIR / f"web_{run_id}.html"
+
+        from tools.report import generate_report
+        generate_report(shortlist, report_path, config.financial_assumptions)
+
+        _runs[run_id] = {"status": "done", "progress": "Analysis complete"}
+
+        db = get_db()
+        try:
+            upsert_report_run(db, run_id, user_id=user_id, status="done", deals_found=len(shortlist.deals))
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.exception("Single-property analysis %s failed", run_id)
+        msg = str(e) or type(e).__name__
+        _runs[run_id] = {"status": "error", "progress": msg, "error": msg}
+        db = get_db()
+        try:
+            upsert_report_run(db, run_id, status="error")
+        finally:
+            db.close()
 
 
 # ── Background pipeline task ──────────────────────────────────────────────────

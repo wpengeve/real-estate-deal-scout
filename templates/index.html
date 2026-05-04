@@ -465,12 +465,46 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   }
 
   // ── Chat: send message ────────────────────────────────────────────────────
+  function extractRedfinUrl(text) {
+    const m = text.match(/https?:\/\/(?:www\.)?redfin\.com\/[^\s"'>]+/i);
+    return m ? m[0] : null;
+  }
+
   async function sendMessage() {
     const text = inputEl.value.trim(); if (!text) return;
     inputEl.value = ''; inputEl.style.height = 'auto';
     sendBtn.disabled = true;
-    appendMsg('user', text); showTyping();
+    appendMsg('user', text);
 
+    // Detect Redfin listing URL — bypass chat, go straight to property analysis
+    const redfinUrl = extractRedfinUrl(text);
+    if (redfinUrl) {
+      appendMsg('agent', '🏠 Got a Redfin listing — analyzing this property with your current financial settings...');
+      showProgress('Fetching and analyzing listing...');
+      try {
+        const res = await fetch('/api/analyze-property', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ session_id: SESSION_ID, url: redfinUrl }),
+        });
+        if (!res.ok) {
+          hideProgress();
+          const err = await res.json().catch(() => ({}));
+          appendMsg('agent', '⚠️ ' + (err.detail || 'Could not analyze property.'));
+          return;
+        }
+        const { run_id } = await res.json();
+        _lastChatTab = 'chat';
+        pollStatus(run_id);
+      } catch {
+        hideProgress();
+        appendMsg('agent', '⚠️ Could not reach the server.');
+      } finally {
+        sendBtn.disabled = false; inputEl.focus();
+      }
+      return;
+    }
+
+    showTyping();
     try {
       const res = await fetch('/api/chat', {
         method: 'POST', headers: {'Content-Type':'application/json'},
@@ -574,7 +608,7 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   }
 
   // ── Progress overlay ──────────────────────────────────────────────────────
-  function showProgress() { overlay.classList.add('active'); progressText.textContent = 'Starting…'; }
+  function showProgress(msg) { overlay.classList.add('active'); progressText.textContent = msg || 'Starting…'; }
   function hideProgress() { overlay.classList.remove('active'); }
 
   // ── Poll status ───────────────────────────────────────────────────────────

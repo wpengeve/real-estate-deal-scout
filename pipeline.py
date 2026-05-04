@@ -479,6 +479,69 @@ def _resolve_schema_refs(schema: dict) -> dict:
     return _inline(schema)
 
 
+async def run_single_property(listing_url: str, config: InvestmentConfig) -> Shortlist:
+    """
+    Analyze a single Redfin listing URL.
+
+    Skips fetch/screening — goes straight to enrich → analyze → flag → narrate.
+    Uses the financial assumptions from config (down payment, loan rate, etc.).
+    """
+    from tools.single_property import fetch_single_listing
+
+    _OUTPUTS_DIR.mkdir(exist_ok=True)
+
+    console.print(f"[dim]Fetching listing: {listing_url}[/dim]")
+    result = await fetch_single_listing(listing_url)
+    if result is None:
+        raise ValueError(
+            "Could not fetch the listing. Make sure the URL is a valid Redfin property page."
+        )
+
+    listing, _ = result
+    market = config.output.market or listing.address
+
+    console.print(f"[dim]Fetched: {listing.address} — ${listing.price:,.0f}[/dim]")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Enriching...", total=None)
+
+        # ── Enrich ────────────────────────────────────────────────────────────
+        progress.update(task, description="[1/3] Enriching...")
+        enrich_results = await enrich_all([listing], config.enrich)
+
+        # ── Analyze financials ─────────────────────────────────────────────────
+        progress.update(task, description="[2/3] Analyzing financials...")
+        analyzed = analyze_all(enrich_results, config.financial_assumptions)
+
+        # ── Flag risks ────────────────────────────────────────────────────────
+        progress.update(task, description="[3/3] Flagging risks...")
+        flagged = flag_all(analyzed, config.criteria)
+
+    # ── Narrate ───────────────────────────────────────────────────────────────
+    ranker = config.output.ranker
+    if ranker == "claude":
+        try:
+            shortlist = await _claude_rank_and_narrate(flagged, config)
+        except anthropic.APIError as e:
+            console.print(f"\n[red]Claude narration failed: {e}[/red]")
+            shortlist = mock_rank_and_narrate(flagged, config)
+    elif ranker == "ollama":
+        try:
+            shortlist = ollama_rank_and_narrate(flagged, config)
+        except RuntimeError:
+            shortlist = mock_rank_and_narrate(flagged, config)
+    else:
+        shortlist = mock_rank_and_narrate(flagged, config)
+
+    shortlist.market = market
+    return shortlist
+
+
 def _write_run_log(entry: dict) -> None:
     log_path = _OUTPUTS_DIR / "run_log.jsonl"
     with log_path.open("a") as f:
