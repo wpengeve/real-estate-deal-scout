@@ -57,6 +57,7 @@ class ListingFeatures:
         "site_features",
         "lot_features",
         "remarks",
+        "photo_url",
     )
 
     def __init__(self) -> None:
@@ -73,6 +74,7 @@ class ListingFeatures:
         self.site_features: list[str] = []
         self.lot_features: list[str] = []
         self.remarks: str | None = None
+        self.photo_url: str | None = None
 
     def to_dict(self) -> dict:
         return {k: getattr(self, k) for k in self.__slots__}
@@ -111,6 +113,13 @@ def _parse_score(html: str, score_type: str) -> int | None:
 def parse(html: str) -> ListingFeatures:
     """Parse a Redfin listing HTML page into a ListingFeatures object."""
     f = ListingFeatures()
+
+    # ── Primary listing photo (og:image meta tag) ─────────────────────────────
+    m = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', html)
+    if not m:
+        m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', html)
+    if m:
+        f.photo_url = m.group(1)
 
     # ── Walk / Bike / Transit scores (embedded in walkScoreInfo JSON blob) ─────
     if "walkScoreInfo" in html:

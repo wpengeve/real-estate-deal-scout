@@ -443,6 +443,7 @@ Properties with HIGH risk should be noted prominently in the narrative."""
         deal.latitude = f.listing.latitude
         deal.longitude = f.listing.longitude
         deal.listing_url = f.listing.listing_url
+        deal.photo_url = f.listing.photo_url
         deal.year_built = f.listing.year_built
         deal.nearby_schools = f.listing.nearby_schools
         deal.solar_ghi_annual = f.listing.solar_ghi_annual

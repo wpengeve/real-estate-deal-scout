@@ -84,37 +84,23 @@ def _cashflow_class(val: float | None) -> str:
     return "positive" if val >= 0 else "negative"
 
 
-# ── Map helpers ────────────────────────────────────────────────────────────────
+# ── Photo helpers ───────────────────────────────────────────────────────────────
 
-def _map_div(deal: DealNarrative, idx: int) -> str:
-    """Return a Leaflet map div + initialization script for one property."""
-    if deal.latitude is None or deal.longitude is None:
-        # Show a Google Maps search link as fallback
-        query = deal.address.replace(" ", "+")
-        return f"""<div class="map-placeholder">
-          <a href="https://www.google.com/maps/search/?api=1&query={query}"
-             target="_blank" rel="noopener" class="map-link">📍 View on Google Maps</a>
-        </div>"""
+def _photo_div(deal: DealNarrative) -> str:
+    """Return an img tag for the primary listing photo, or a fallback placeholder."""
+    target = deal.listing_url or f"https://www.redfin.com/search#location={quote(deal.address)}"
 
-    map_id = f"map-{idx}"
-    lat, lng = deal.latitude, deal.longitude
-    gmaps = f"https://www.google.com/maps?q={lat},{lng}&layer=c&cbll={lat},{lng}"
-    return f"""<div id="{map_id}" class="map-container"></div>
-<script>
-(function() {{
-  var m = L.map('{map_id}', {{zoomControl: false, dragging: false, scrollWheelZoom: false}})
-           .setView([{lat}, {lng}], 15);
-  L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-    attribution: '© <a href="https://openstreetmap.org">OSM</a>',
-    maxZoom: 19
-  }}).addTo(m);
-  L.marker([{lat}, {lng}]).addTo(m);
-  setTimeout(function() {{ m.invalidateSize(); }}, 0);
-  document.getElementById('{map_id}').addEventListener('click', function() {{
-    window.open('{gmaps}', '_blank');
-  }});
-}})();
-</script>"""
+    if deal.photo_url:
+        return f"""<a href="{target}" target="_blank" rel="noopener">
+  <img src="{deal.photo_url}" alt="{deal.address}" class="listing-photo" loading="lazy" />
+</a>"""
+
+    # Fallback: address text on a neutral background
+    query = quote(deal.address)
+    return f"""<a href="https://www.google.com/maps/search/?api=1&query={query}"
+   target="_blank" rel="noopener" class="photo-placeholder">
+  <span>📍 {deal.address.split(',')[0]}</span>
+</a>"""
 
 
 # ── Card renderer ──────────────────────────────────────────────────────────────
@@ -329,7 +315,7 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
     if deal.listing_url:
         redfin_btn = f'<a href="{deal.listing_url}" target="_blank" rel="noopener" class="redfin-btn">View on Redfin →</a>'
 
-    map_html = _map_div(deal, idx)
+    photo_html = _photo_div(deal)
 
     # data attributes for JS recalculation
     noi_attr = f' data-noi-annual="{deal.noi_annual}"' if deal.noi_annual is not None else ""
@@ -337,7 +323,7 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
 
     return f"""
 <div class="card{'  card--first' if deal.rank == 1 else ''}" data-rank="{deal.rank}"{price_attr}{noi_attr}>
-  <div class="card-map">{map_html}</div>
+  <div class="card-photo">{photo_html}</div>
   <div class="card-body">
 
     <div class="card-header">
@@ -414,10 +400,6 @@ def _render(shortlist: Shortlist, assumptions: FinancialAssumptions | None = Non
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Deal Scout — {shortlist.market}</title>
 
-<!-- Leaflet.js for maps (OpenStreetMap, no API key) -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
 <style>
 /* ── Reset & base ── */
 *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -477,33 +459,36 @@ body {{
   box-shadow: 0 0 0 2px #2563eb22, 0 4px 12px rgba(37,99,235,0.12);
 }}
 
-/* ── Map pane ── */
-.card-map {{
+/* ── Photo pane ── */
+.card-photo {{
   position: relative;
   height: 220px;
   background: #e2e8f0;
-  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
 }}
-.map-container {{
-  position: absolute;
-  inset: 0;
+.card-photo a {{ display: block; width: 100%; height: 100%; }}
+.listing-photo {{
   width: 100%;
   height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s ease;
 }}
-.map-placeholder {{
+.card-photo:hover .listing-photo {{ transform: scale(1.03); }}
+.photo-placeholder {{
   display: flex;
   align-items: center;
   justify-content: center;
-  position: absolute;
-  inset: 0;
-}}
-.map-link {{
-  color: #2563eb;
+  width: 100%;
+  height: 100%;
   text-decoration: none;
+  color: #475569;
   font-size: 0.875rem;
   font-weight: 500;
+  background: #f1f5f9;
 }}
-.map-link:hover {{ text-decoration: underline; }}
+.photo-placeholder:hover {{ background: #e2e8f0; }}
 
 /* ── Card body ── */
 .card-body {{ padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; }}
@@ -728,8 +713,7 @@ body {{
 /* ── Responsive ── */
 @media (max-width: 700px) {{
   .card {{ grid-template-columns: 1fr; }}
-  .card-map {{ height: 180px; }}
-  .map-container {{ min-height: 180px; }}
+  .card-photo {{ height: 180px; }}
   .metrics-grid {{ grid-template-columns: 1fr 1fr; }}
   .main {{ padding: 1rem; }}
   .sliders-bar {{ padding: 0.75rem 1rem; gap: 0.75rem; }}
@@ -741,7 +725,7 @@ body {{
 
 <div class="page-header">
   <h1>Deal Scout &nbsp;·&nbsp; {shortlist.market}</h1>
-  <p class="subtitle">Top {count} investment {'property' if count == 1 else 'properties'} &nbsp;·&nbsp; Click a map to open Google Maps</p>
+  <p class="subtitle">Top {count} investment {'property' if count == 1 else 'properties'} &nbsp;·&nbsp; Click a photo to view on Redfin</p>
   <div class="summary-bar">{shortlist.run_summary}</div>
 </div>
 

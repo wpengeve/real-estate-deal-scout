@@ -145,9 +145,14 @@ async def enrich_neighborhood(
     # Scraped scores are free and don't need a separate API key.
     effective_walk_score = (lf.walk_score if lf and lf.walk_score is not None else walk_score)
 
-    # Backfill year_built from scraper if not already in the listing (CSV has it, ScraperAPI doesn't)
+    # Backfill year_built and photo_url from scraper
+    backfill = {}
     if lf and lf.year_built is not None and updated_listing.year_built is None:
-        updated_listing = updated_listing.model_copy(update={"year_built": lf.year_built})
+        backfill["year_built"] = lf.year_built
+    if lf and lf.photo_url is not None and updated_listing.photo_url is None:
+        backfill["photo_url"] = lf.photo_url
+    if backfill:
+        updated_listing = updated_listing.model_copy(update=backfill)
 
     return EnrichResult(
         listing=updated_listing,
