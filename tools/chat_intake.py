@@ -158,8 +158,9 @@ Rules:
 - Use sensible defaults for optional fields: loan rate 5.25%, no HOA restriction, any type.
 - For a metro area, include the major city plus suburbs in allowed_cities.
 - Be concise — investors are busy.
-- If the user mentions a specific property address, reply: \
-"Just type or paste that address into the chat and I'll look it up automatically."\
+- If the user's message looks like a property address (starts with a house number, \
+contains a street name) OR is a Redfin URL, do NOT call set_investment_criteria. \
+Reply only: "Got it — I'll look that up for you automatically." The UI will handle it.\
 """
 
 

@@ -471,9 +471,9 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   }
 
   function looksLikeAddress(text) {
-    // Starts with a house number and contains a street suffix
+    // Starts with a house number and contains a street suffix (abbreviated or full)
     return /^\d+\s+\w/.test(text.trim()) &&
-      /\b(st|ave|blvd|rd|dr|ln|way|pl|ct|cir|ter|hwy|pkwy|sq)\b/i.test(text);
+      /\b(street|avenue|boulevard|road|drive|lane|way|place|court|circle|terrace|highway|parkway|square|st|ave|blvd|rd|dr|ln|pl|ct|cir|ter|hwy|pkwy|sq)\b/i.test(text);
   }
 
   async function analyzePropertyUrl(url) {
@@ -530,8 +530,11 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
             return;
           }
         }
-      } catch { /* fall through to chat */ }
-      // Resolution failed — let chat handle it
+      } catch { /* fall through to manual prompt */ }
+      // Resolution failed — ask user to paste the URL directly, don't send to Claude
+      appendMsg('agent', "Couldn't find that address automatically. Search for it on [redfin.com](https://www.redfin.com) and paste the listing URL here.");
+      sendBtn.disabled = false; inputEl.focus();
+      return;
     }
 
     showTyping();
