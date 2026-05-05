@@ -642,14 +642,16 @@ async def resolve_address_to_url(address: str) -> str | None:
     """
     Resolve a plain address string to a Redfin listing URL.
 
-    Uses DuckDuckGo HTML search (site:redfin.com) to find the listing URL.
-    No API key required — DuckDuckGo allows programmatic use without bot detection.
+    Uses Brave Search HTML to find the listing URL — no API key required.
+    Falls back to DuckDuckGo if Brave doesn't return results.
+
+    Filters candidate URLs by house number to avoid nearby-listing false matches.
     Returns the full Redfin URL or None if not found.
     """
-    from urllib.parse import unquote
     import re as _re
 
-    query = f"redfin {address.strip()}"
+    addr = address.strip()
+    query = f"redfin {addr}"
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -657,25 +659,71 @@ async def resolve_address_to_url(address: str) -> str | None:
             "Chrome/120.0.0.0 Safari/537.36"
         ),
         "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
     }
+
+    # Extract house number for URL matching (e.g. "937" from "937 N 71st St")
+    house_m = _re.match(r"^(\d+)", addr)
+    house_num = house_m.group(1) if house_m else ""
+
+    # Extract numeric street identifier (e.g. "71" from "71st St")
+    street_m = _re.search(r"\b(\d+)(?:st|nd|rd|th)\b", addr, _re.I)
+    street_num = street_m.group(1) if street_m else ""
+
+    _LISTING_SEGS = ("/home/", "/condo/", "/townhouse/", "/other/", "/unit/")
+
+    def _best_match(urls: list[str]) -> str | None:
+        candidates = [u for u in urls if any(s in u for s in _LISTING_SEGS)]
+        if not candidates:
+            return None
+        # Prefer URLs containing the house number right after a slash
+        if house_num:
+            scored = []
+            for u in candidates:
+                score = 0
+                if f"/{house_num}-" in u or f"/{house_num}/" in u:
+                    score += 2
+                if street_num and street_num in u:
+                    score += 1
+                scored.append((score, u))
+            scored.sort(key=lambda x: -x[0])
+            if scored[0][0] > 0:
+                return scored[0][1]
+        return candidates[0]
+
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+            # Primary: Brave Search
             resp = await client.get(
+                "https://search.brave.com/search",
+                params={"q": query},
+                headers=headers,
+            )
+            if resp.status_code == 200 and len(resp.text) > 5000:
+                urls = list(dict.fromkeys(
+                    _re.findall(r"https?://(?:www\.)?redfin\.com/[^\s\"'<>&]+", resp.text)
+                ))
+                result = _best_match(urls)
+                if result:
+                    logger.info("Resolved address %r → %s (brave)", addr, result)
+                    return result
+
+            # Fallback: DuckDuckGo HTML
+            from urllib.parse import unquote as _unquote
+            resp2 = await client.get(
                 "https://html.duckduckgo.com/html/",
                 params={"q": query},
                 headers=headers,
             )
-            # DuckDuckGo encodes result URLs in uddg= query params
-            encoded_urls = _re.findall(r"uddg=([^&\"]+)", resp.text)
-            for enc in encoded_urls:
-                url = unquote(enc)
-                if "redfin.com" in url and any(
-                    seg in url for seg in ["/home/", "/condo/", "/townhouse/", "/other/"]
-                ):
-                    logger.info("Resolved address %r → %s", address, url)
-                    return url
+            encoded_urls = _re.findall(r"uddg=([^&\"]+)", resp2.text)
+            ddg_urls = [_unquote(e) for e in encoded_urls]
+            result = _best_match(ddg_urls)
+            if result:
+                logger.info("Resolved address %r → %s (ddg)", addr, result)
+                return result
+
     except Exception as e:
-        logger.warning("Address resolution failed for %r: %s", address, e)
+        logger.warning("Address resolution failed for %r: %s", addr, e)
     return None
 
 
