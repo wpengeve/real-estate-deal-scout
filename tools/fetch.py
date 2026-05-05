@@ -642,29 +642,38 @@ async def resolve_address_to_url(address: str) -> str | None:
     """
     Resolve a plain address string to a Redfin listing URL.
 
-    Uses Redfin's location-autocomplete endpoint (via ScraperAPI to bypass bot
-    detection). Returns the full Redfin URL or None if not found.
+    Uses DuckDuckGo HTML search (site:redfin.com) to find the listing URL.
+    No API key required — DuckDuckGo allows programmatic use without bot detection.
+    Returns the full Redfin URL or None if not found.
     """
-    if not _SCRAPERAPI_KEY:
-        return None
-    query = address.strip().replace(" ", "+")
-    autocomplete_url = f"{_REDFIN_AUTOCOMPLETE_URL}?location={query}&v=2"
+    from urllib.parse import unquote
+    import re as _re
+
+    query = f"redfin {address.strip()}"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml",
+    }
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             resp = await client.get(
-                "https://api.scraperapi.com/",
-                params={"api_key": _SCRAPERAPI_KEY, "url": autocomplete_url},
+                "https://html.duckduckgo.com/html/",
+                params={"q": query},
+                headers=headers,
             )
-            resp.raise_for_status()
-            data = resp.json()
-            results = (data.get("payload") or {}).get("resultList") or []
-            # Find the first result that looks like a property listing page
-            for r in results:
-                url_path = str(r.get("url", ""))
-                if any(seg in url_path for seg in ["/home/", "/condo/", "/townhouse/", "/other/"]):
-                    full_url = "https://www.redfin.com" + url_path
-                    logger.info("Resolved address %r → %s", address, full_url)
-                    return full_url
+            # DuckDuckGo encodes result URLs in uddg= query params
+            encoded_urls = _re.findall(r"uddg=([^&\"]+)", resp.text)
+            for enc in encoded_urls:
+                url = unquote(enc)
+                if "redfin.com" in url and any(
+                    seg in url for seg in ["/home/", "/condo/", "/townhouse/", "/other/"]
+                ):
+                    logger.info("Resolved address %r → %s", address, url)
+                    return url
     except Exception as e:
         logger.warning("Address resolution failed for %r: %s", address, e)
     return None
