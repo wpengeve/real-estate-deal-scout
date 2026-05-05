@@ -642,8 +642,10 @@ async def resolve_address_to_url(address: str) -> str | None:
     """
     Resolve a plain address string to a Redfin listing URL.
 
-    Uses Brave Search HTML to find the listing URL — no API key required.
-    Falls back to DuckDuckGo if Brave doesn't return results.
+    Strategy:
+      1. Proxy Brave Search through ScraperAPI (rotates IPs → no rate limits).
+      2. Fall back to direct Brave Search (works if not rate-limited).
+      3. Fall back to DuckDuckGo direct.
 
     Filters candidate URLs by house number to avoid nearby-listing false matches.
     Returns the full Redfin URL or None if not found.
@@ -651,16 +653,8 @@ async def resolve_address_to_url(address: str) -> str | None:
     import re as _re
 
     addr = address.strip()
-    query = f"redfin {addr}"
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
+    # "redfin.com" in query gives more specific results than just "redfin"
+    query = f"redfin.com {addr}"
 
     # Extract house number for URL matching (e.g. "937" from "937 N 71st St")
     house_m = _re.match(r"^(\d+)", addr)
@@ -676,7 +670,6 @@ async def resolve_address_to_url(address: str) -> str | None:
         candidates = [u for u in urls if any(s in u for s in _LISTING_SEGS)]
         if not candidates:
             return None
-        # Prefer URLs containing the house number right after a slash
         if house_num:
             scored = []
             for u in candidates:
@@ -691,36 +684,71 @@ async def resolve_address_to_url(address: str) -> str | None:
                 return scored[0][1]
         return candidates[0]
 
-    try:
-        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
-            # Primary: Brave Search
-            resp = await client.get(
-                "https://search.brave.com/search",
-                params={"q": query},
-                headers=headers,
-            )
-            if resp.status_code == 200 and len(resp.text) > 5000:
-                urls = list(dict.fromkeys(
-                    _re.findall(r"https?://(?:www\.)?redfin\.com/[^\s\"'<>&]+", resp.text)
-                ))
-                result = _best_match(urls)
-                if result:
-                    logger.info("Resolved address %r → %s (brave)", addr, result)
-                    return result
+    _BRAVE_URL = f"https://search.brave.com/search?q={query.replace(' ', '+')}"
+    _DDG_HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
 
-            # Fallback: DuckDuckGo HTML
+    def _extract_redfin_urls(html: str) -> list[str]:
+        return list(dict.fromkeys(
+            _re.findall(r"https?://(?:www\.)?redfin\.com/[^\s\"'<>&]+", html)
+        ))
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            # Primary: Brave via ScraperAPI proxy (bypasses IP rate limits)
+            if _SCRAPERAPI_KEY:
+                try:
+                    resp = await client.get(
+                        "https://api.scraperapi.com/",
+                        params={"api_key": _SCRAPERAPI_KEY, "url": _BRAVE_URL},
+                        timeout=25.0,
+                    )
+                    if resp.status_code == 200 and len(resp.text) > 5000:
+                        result = _best_match(_extract_redfin_urls(resp.text))
+                        if result:
+                            logger.info("Resolved %r → %s (brave/scraperapi)", addr, result)
+                            return result
+                except Exception:
+                    pass
+
+            # Fallback 1: Brave direct
+            try:
+                resp = await client.get(
+                    "https://search.brave.com/search",
+                    params={"q": query},
+                    headers=_DDG_HEADERS,
+                    timeout=12.0,
+                )
+                if resp.status_code == 200 and len(resp.text) > 5000:
+                    result = _best_match(_extract_redfin_urls(resp.text))
+                    if result:
+                        logger.info("Resolved %r → %s (brave/direct)", addr, result)
+                        return result
+            except Exception:
+                pass
+
+            # Fallback 2: DuckDuckGo direct
             from urllib.parse import unquote as _unquote
-            resp2 = await client.get(
-                "https://html.duckduckgo.com/html/",
-                params={"q": query},
-                headers=headers,
-            )
-            encoded_urls = _re.findall(r"uddg=([^&\"]+)", resp2.text)
-            ddg_urls = [_unquote(e) for e in encoded_urls]
-            result = _best_match(ddg_urls)
-            if result:
-                logger.info("Resolved address %r → %s (ddg)", addr, result)
-                return result
+            try:
+                resp = await client.get(
+                    "https://html.duckduckgo.com/html/",
+                    params={"q": f"redfin {addr}"},
+                    headers=_DDG_HEADERS,
+                    timeout=12.0,
+                )
+                encoded_urls = _re.findall(r"uddg=([^&\"]+)", resp.text)
+                result = _best_match([_unquote(e) for e in encoded_urls])
+                if result:
+                    logger.info("Resolved %r → %s (ddg)", addr, result)
+                    return result
+            except Exception:
+                pass
 
     except Exception as e:
         logger.warning("Address resolution failed for %r: %s", addr, e)
