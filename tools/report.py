@@ -709,8 +709,80 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
 
 # ── Full page ──────────────────────────────────────────────────────────────────
 
+def _render_map(shortlist: Shortlist) -> str:
+    """Leaflet.js map with numbered, color-coded markers for all properties that have coordinates."""
+    map_deals = [d for d in shortlist.deals if d.latitude is not None and d.longitude is not None]
+    if not map_deals:
+        return ""
+
+    map_data = json.dumps([
+        {
+            "rank": d.rank,
+            "address": d.address,
+            "price": d.price,
+            "lat": d.latitude,
+            "lng": d.longitude,
+            "cap_rate": d.cap_rate,
+            "cashflow": d.monthly_cashflow,
+            "verdict": _verdict_label(d.narrative),
+            "url": d.listing_url or "",
+        }
+        for d in map_deals
+    ])
+
+    # Use string concatenation so JS braces don't need escaping
+    js = (
+        "(function() {\n"
+        "  var deals = " + map_data + ";\n"
+        "  if (!deals.length || typeof L === 'undefined') return;\n"
+        "  var map = L.map('property-map');\n"
+        "  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {\n"
+        "    attribution: '&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors',\n"
+        "    maxZoom: 19\n"
+        "  }).addTo(map);\n"
+        "  var VC = {'strong buy':'#16a34a','buy':'#22c55e','consider':'#3b82f6','proceed with caution':'#f59e0b','pass':'#ef4444'};\n"
+        "  function vcolor(v) { var l=(v||'').toLowerCase(); for (var k in VC) { if (l.indexOf(k)!==-1) return VC[k]; } return '#6b7280'; }\n"
+        "  function fp(p) { return '$'+Math.round(p).toLocaleString(); }\n"
+        "  function fc(c) { return c!=null?(c*100).toFixed(2)+'%':'—'; }\n"
+        "  function ff(c) { return c!=null?((c>=0?'+':'')+' $'+Math.round(c).toLocaleString()+'/mo'):'—'; }\n"
+        "  var markers = [];\n"
+        "  for (var i=0; i<deals.length; i++) {\n"
+        "    var d=deals[i], color=vcolor(d.verdict);\n"
+        "    var icon = L.divIcon({\n"
+        "      className: '',\n"
+        "      html: '<div style=\"background:'+color+';color:#fff;font-weight:700;font-size:11px;width:26px;height:26px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center\">' + d.rank + '</div>',\n"
+        "      iconSize: [26,26], iconAnchor: [13,13], popupAnchor: [0,-16]\n"
+        "    });\n"
+        "    var street=d.address.split(',')[0];\n"
+        "    var city=d.address.split(',').slice(1).join(',').trim();\n"
+        "    var redfin=d.url?'<br><a href=\"'+d.url+'\" target=\"_blank\" style=\"color:#2563eb;font-size:12px\">View on Redfin →</a>':'';\n"
+        "    var popup='<div style=\"min-width:210px;font-family:-apple-system,sans-serif\">'\n"
+        "      +'<div style=\"font-weight:700;font-size:14px\">#'+d.rank+' '+street+'</div>'\n"
+        "      +'<div style=\"color:#64748b;font-size:12px;margin-bottom:6px\">'+city+'</div>'\n"
+        "      +'<div style=\"font-size:13px;line-height:1.9\">'\n"
+        "      +'💰 '+fp(d.price)+'<br>📊 Cap rate (net): '+fc(d.cap_rate)+'<br>💵 Cash flow: '+ff(d.cashflow)\n"
+        "      +'</div>'\n"
+        "      +'<div style=\"margin-top:5px;font-weight:700;color:'+color+'\">'+d.verdict+'</div>'\n"
+        "      +redfin+'</div>';\n"
+        "    var m=L.marker([d.lat,d.lng],{icon:icon}).addTo(map);\n"
+        "    m.bindPopup(popup,{maxWidth:270});\n"
+        "    markers.push(m);\n"
+        "  }\n"
+        "  if (markers.length===1) { map.setView([deals[0].lat,deals[0].lng],14); }\n"
+        "  else { var g=L.featureGroup(markers); map.fitBounds(g.getBounds().pad(0.2)); }\n"
+        "})();\n"
+    )
+
+    return (
+        '<div class="map-section"><div id="property-map"></div></div>\n'
+        "<script>\n" + js + "</script>\n"
+    )
+
+
 def _render(shortlist: Shortlist, assumptions: FinancialAssumptions | None = None) -> str:
     cards_html = "\n".join(_render_deal(d, i) for i, d in enumerate(shortlist.deals))
+    map_section = _render_map(shortlist)
+    has_map = bool(map_section)
     count = len(shortlist.deals)
 
     # Slider defaults from assumptions (or fallbacks)
@@ -1154,6 +1226,20 @@ body {{
   font-size: 0.75rem; color: #94a3b8; margin-left: auto;
 }}
 
+/* ── Map ── */
+.map-section {{
+  max-width: 1100px;
+  margin: 1.25rem auto 0;
+  padding: 0 1.5rem;
+}}
+#property-map {{
+  height: 380px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}}
+
 /* ── Responsive ── */
 @media (max-width: 700px) {{
   .card {{ grid-template-columns: 1fr; }}
@@ -1162,8 +1248,12 @@ body {{
   .main {{ padding: 1rem; }}
   .sliders-bar {{ padding: 0.75rem 1rem; gap: 0.75rem; }}
   .sliders-bar .recalc-note {{ display: none; }}
+  #property-map {{ height: 260px; }}
+  .map-section {{ padding: 0 1rem; }}
 }}
 </style>
+{"<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css' />" if has_map else ""}
+{"<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>" if has_map else ""}
 </head>
 <body>
 
@@ -1204,6 +1294,8 @@ body {{
   </label>''' if count > 5 else ''}
   <span class="recalc-note">Cash flow &amp; CoC update live · cap rate is unaffected by financing</span>
 </div>
+
+{map_section}
 
 <main class="main">
 {cards_html}
