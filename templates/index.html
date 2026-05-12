@@ -279,6 +279,14 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
             <input type="number" id="f-loan-rate" value="5.25" min="1" max="20" step="0.05" required>
           </div>
           <div class="form-group">
+            <label>Vacancy rate (%) <span class="hint">typically 5–10%</span></label>
+            <input type="number" id="f-vacancy" value="8" min="0" max="50" step="1">
+          </div>
+          <div class="form-group">
+            <label>Management fee (%) <span class="hint">0 if self-managing</span></label>
+            <input type="number" id="f-mgmt-fee" value="10" min="0" max="30" step="1">
+          </div>
+          <div class="form-group">
             <label>Target cap rate (%)</label>
             <input type="number" id="f-target-cap" value="5" min="0" max="20" step="0.5">
           </div>
@@ -471,7 +479,22 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   function looksLikeAddress(text) {
     // Starts with a house number and contains a street suffix (abbreviated or full)
     return /^\d+\s+\w/.test(text.trim()) &&
-      /\b(street|avenue|boulevard|road|drive|lane|way|place|court|circle|terrace|highway|parkway|square|st|ave|blvd|rd|dr|ln|pl|ct|cir|ter|hwy|pkwy|sq)\b/i.test(text);
+      /\b(street|avenue|boulevard|road|drive|lane|way|place|court|circle|terrace|highway|parkway|square|broadway|loop|pass|commons|st|ave|blvd|rd|dr|ln|pl|ct|cir|ter|hwy|pkwy|sq)\b/i.test(text);
+  }
+
+  // Finds a property address anywhere in the message — handles "analyze 123 Main St"
+  // or addresses not starting with a digit (e.g. embedded in a sentence).
+  // Returns the address substring, or null.
+  function findAddressInText(text) {
+    const _suffixes = 'street|avenue|boulevard|road|drive|lane|way|place|court|circle|terrace|highway|parkway|square|broadway|loop|pass|commons|st|ave|blvd|rd|dr|ln|pl|ct|cir|ter|hwy|pkwy|sq';
+    const m = text.match(
+      new RegExp(
+        '\\b(\\d+\\s+(?:[NSEW][EW]?\\s+)?[\\w]+(?:\\s+[\\w]+){0,4}\\s+' +
+        '(?:' + _suffixes + ')\\b[^.\\n]{0,60})',
+        'i'
+      )
+    );
+    return m ? m[1].trim().replace(/[?!,]+$/, '') : null;
   }
 
   async function analyzePropertyUrl(url) {
@@ -547,18 +570,20 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
       return;
     }
 
-    // 2. Looks like a street address — try to resolve to a Redfin URL
-    if (looksLikeAddress(text)) {
+    // 2. Single address — whole message is an address OR address embedded in text
+    //    (e.g. "6612 NE 202nd St Kenmore WA" or "can you analyze 123 Main St Seattle?")
+    const foundAddr = looksLikeAddress(text) ? text : findAddressInText(text);
+    if (foundAddr) {
       appendMsg('agent', '🔍 Looking up that address on Redfin...');
       try {
         const res = await fetch('/api/resolve-address', {
           method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ address: text }),
+          body: JSON.stringify({ address: foundAddr }),
         });
         if (res.ok) {
           const data = await res.json();
           if (data.url) {
-            appendMsg('agent', `🏠 Found it — analyzing ${text}...`);
+            appendMsg('agent', `🏠 Found it — analyzing **${foundAddr.split(',')[0]}**...`);
             await analyzePropertyUrl(data.url);
             sendBtn.disabled = false; inputEl.focus();
             return;
@@ -620,6 +645,8 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
       min_baths: minBaths > 0 ? minBaths : null,
       down_payment_pct: parseFloat(document.getElementById('f-down-pct').value) / 100,
       loan_rate_annual: parseFloat(document.getElementById('f-loan-rate').value) / 100,
+      vacancy_rate: parseFloat(document.getElementById('f-vacancy').value) / 100,
+      management_fee_pct: parseFloat(document.getElementById('f-mgmt-fee').value) / 100,
       target_cap_rate: parseFloat(document.getElementById('f-target-cap').value) / 100,
       min_cap_rate: minCap > 0 ? minCap / 100 : null,
       max_hoa_fee: maxHoa >= 0 ? maxHoa : null,
