@@ -669,7 +669,7 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
         <div class="metric-value">{_fmt_currency(deal.price)}</div>
       </div>
       <div class="metric">
-        <div class="metric-label">Cap Rate</div>
+        <div class="metric-label">Cap Rate (net)</div>
         <div class="metric-value">{_fmt_pct(deal.cap_rate)}</div>
       </div>
       <div class="metric">
@@ -1292,7 +1292,7 @@ body {{
       <option value="0">All</option>
     </select>
   </label>''' if count > 5 else ''}
-  <span class="recalc-note">Cash flow &amp; CoC update live · cap rate is unaffected by financing</span>
+  <span class="recalc-note">Cash flow &amp; CoC update live · net cap rate excludes financing costs</span>
 </div>
 
 {map_section}

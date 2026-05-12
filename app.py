@@ -86,7 +86,26 @@ _runs: dict[str, dict] = {}  # run_id → {status, progress, error}
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    _prune_outputs(max_age_days=7)
     logger.info("Database initialised")
+
+
+def _prune_outputs(max_age_days: int = 7) -> None:
+    """Delete output files older than max_age_days. Keeps run_log.jsonl."""
+    import time
+    cutoff = time.time() - max_age_days * 86400
+    pruned = 0
+    for f in _OUTPUTS_DIR.glob("*"):
+        if f.name == "run_log.jsonl" or not f.is_file():
+            continue
+        if f.stat().st_mtime < cutoff:
+            try:
+                f.unlink()
+                pruned += 1
+            except OSError:
+                pass
+    if pruned:
+        logger.info("Pruned %d output file(s) older than %d days", pruned, max_age_days)
 
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
