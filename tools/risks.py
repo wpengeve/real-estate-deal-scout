@@ -97,6 +97,44 @@ def flag_risks(
                 level=RiskLevel.MEDIUM,
             ))
 
+    # ── Earthquake hazard (USGS) ──────────────────────────────────────────────
+    lat = analyzed.listing.latitude
+    lon = analyzed.listing.longitude
+    seismic = _lookup_usgs_seismic(lat, lon)
+    if seismic is not None:
+        pga, label = seismic
+        # Seismic risk is regional (entire metro area shares the same score), so we
+        # use LOW level to avoid inflating overall_risk for every property in a city.
+        # The description still surfaces in the report as an informational note.
+        if pga >= 0.5:
+            flags.append(RiskFlag(
+                code="seismic_high",
+                description=f"Elevated seismic zone — Peak Ground Acceleration {pga:.2f}g (USGS ASCE7-22); verify home was built or retrofitted to modern seismic codes",
+                level=RiskLevel.LOW,
+            ))
+        elif pga >= 0.3:
+            flags.append(RiskFlag(
+                code="seismic_medium",
+                description=f"Moderate seismic zone — Peak Ground Acceleration {pga:.2f}g (USGS ASCE7-22)",
+                level=RiskLevel.LOW,
+            ))
+
+    # ── Wildfire hazard (USGS/ArcGIS) ────────────────────────────────────────
+    wildfire_class = _lookup_wildfire_risk(lat, lon)
+    if wildfire_class is not None:
+        if wildfire_class in ("High", "Very High", "Extreme"):
+            flags.append(RiskFlag(
+                code="wildfire_high",
+                description=f"HIGH wildfire risk: RISK_CLASS={wildfire_class} within 500m (USGS Wildfire Hazard)",
+                level=RiskLevel.HIGH,
+            ))
+        elif wildfire_class == "Moderate":
+            flags.append(RiskFlag(
+                code="wildfire_medium",
+                description=f"MEDIUM wildfire risk: RISK_CLASS={wildfire_class} within 500m (USGS Wildfire Hazard)",
+                level=RiskLevel.MEDIUM,
+            ))
+
     # ── Overall risk level ────────────────────────────────────────────────────
     if any(f.level == RiskLevel.HIGH for f in flags):
         overall = RiskLevel.HIGH
@@ -192,5 +230,83 @@ def _lookup_fema_sync(lat: float | None, lon: float | None) -> str | None:
                     "FEMA lookup failed for (%s, %s) after %d attempts: %s",
                     lat, lon, _FEMA_RETRIES, e,
                 )
+
+    return None
+
+
+_USGS_SEISMIC_URL = "https://earthquake.usgs.gov/ws/designmaps/asce7-22.json"
+_USGS_SEISMIC_TIMEOUT = 5.0
+
+_WILDFIRE_URL = (
+    "https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services"
+    "/USA_Wildfires_v1/FeatureServer/0/query"
+)
+_WILDFIRE_TIMEOUT = 5.0
+
+
+def _lookup_usgs_seismic(lat: float | None, lon: float | None) -> tuple[float, str] | None:
+    """
+    Look up USGS ASCE7-22 Peak Ground Acceleration (PGA) for a location.
+
+    Returns (pga, label) where pga is in units of g, or None on failure.
+    Fails silently — never raises.
+    """
+    if lat is None or lon is None:
+        return None
+
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "riskCategory": "III",
+        "siteClass": "C",
+        "title": "query",
+    }
+
+    try:
+        with httpx.Client(timeout=_USGS_SEISMIC_TIMEOUT) as client:
+            response = client.get(_USGS_SEISMIC_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
+            rdata = data.get("response", {}).get("data", {})
+            # USGS ASCE7-22 uses "pgam" (Modified PGA); fall back to "pga" if present
+            pga = rdata.get("pgam") or rdata.get("pga")
+            if pga is not None:
+                return (float(pga), "USGS ASCE7-22")
+    except Exception as e:
+        logger.debug("USGS seismic lookup failed for (%s, %s): %s", lat, lon, e)
+
+    return None
+
+
+def _lookup_wildfire_risk(lat: float | None, lon: float | None) -> str | None:
+    """
+    Look up wildfire hazard RISK_CLASS at a given location via USGS ArcGIS service.
+
+    Returns RISK_CLASS string (e.g. "High", "Very High") or None on failure/no data.
+    Fails silently — never raises.
+    """
+    if lat is None or lon is None:
+        return None
+
+    params = {
+        "geometry": f"{lon},{lat}",
+        "geometryType": "esriGeometryPoint",
+        "spatialRel": "esriSpatialRelIntersects",
+        "outFields": "RISK_CLASS",
+        "f": "json",
+        "inSR": "4326",
+        "distance": "500",
+        "units": "esriSRUnit_Meter",
+    }
+
+    try:
+        with httpx.Client(timeout=_WILDFIRE_TIMEOUT) as client:
+            response = client.get(_WILDFIRE_URL, params=params)
+            response.raise_for_status()
+            features = response.json().get("features", [])
+            if features:
+                return features[0].get("attributes", {}).get("RISK_CLASS")
+    except Exception as e:
+        logger.debug("Wildfire lookup failed for (%s, %s): %s", lat, lon, e)
 
     return None

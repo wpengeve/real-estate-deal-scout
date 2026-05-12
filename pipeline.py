@@ -12,6 +12,7 @@ Architecture:
     flag_all()                → list[FlaggedListing]
     claude_rank_and_narrate() → Shortlist
 """
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -347,12 +348,19 @@ Properties with financial analysis:
 {json.dumps(listings_data, indent=2)}
 
 Select the top {config.output.max_shortlist} investment opportunities. \
-For each, write 2-3 sentences explaining why the deal is compelling, \
-what makes the numbers work, and what to watch out for. \
-Be specific about the financials. Rank by overall investment quality \
-(cap rate, cash flow, and risk-adjusted return). \
-Properties with financial_data_available=false should rank lower. \
-Properties with HIGH risk should be noted prominently in the narrative."""
+For each property write exactly 3 short sentences separated by newlines — no more:
+Line 1: Property overview and location (1 sentence, no financials).
+Line 2: The key financial reality in plain numbers — cap rate, monthly cash flow, rent vs target.
+Line 3: Verdict using exactly one of these labels followed by one short reason:
+  "Strong Buy" — cap rate near or above target, positive or near-zero cash flow
+  "Buy" — slightly below target but solid fundamentals, manageable cash flow gap
+  "Consider" — below target but real upside (location, appreciation, value-add)
+  "Proceed with Caution" — significant financial gap, needs price cut or higher rent to work
+  "Pass" — deeply negative returns with no clear path to profitability
+Keep each sentence under 20 words. No conjunctions chaining clauses. No semicolons. \
+Rank by overall investment quality (cap rate, cash flow, risk-adjusted return). \
+Properties with financial_data_available=false rank lower. \
+HIGH risk must be stated plainly in the verdict line."""
 
     # Use a minimal schema for the tool call — the full inlined Shortlist schema is
     # too large and causes Claude to omit the required `deals` array.
@@ -427,6 +435,8 @@ Properties with HIGH risk should be noted prominently in the narrative."""
         deal.price = f.listing.price
         deal.beds = f.listing.beds
         deal.baths = f.listing.baths
+        deal.sqft = f.listing.sqft
+        deal.lot_sqft = f.listing.lot_sqft
         deal.days_on_market = f.listing.days_on_market
         deal.cap_rate = f.financials.cap_rate
         deal.coc_return = f.financials.coc_return
@@ -455,6 +465,7 @@ Properties with HIGH risk should be noted prominently in the narrative."""
         deal.has_basement = f.has_basement
         deal.basement_finished = f.basement_finished
         deal.has_fireplace = f.has_fireplace
+        deal.risk_flags = [rf.description for rf in f.risks.flags]
 
     return shortlist
 
@@ -527,7 +538,61 @@ async def run_single_property(listing_url: str, config: InvestmentConfig) -> Sho
     if ranker == "claude":
         try:
             shortlist = await _claude_rank_and_narrate(flagged, config)
-        except anthropic.APIError as e:
+        except (anthropic.APIError, TypeError) as e:
+            console.print(f"\n[red]Claude narration failed: {e}[/red]")
+            shortlist = mock_rank_and_narrate(flagged, config)
+    elif ranker == "ollama":
+        try:
+            shortlist = ollama_rank_and_narrate(flagged, config)
+        except RuntimeError:
+            shortlist = mock_rank_and_narrate(flagged, config)
+    else:
+        shortlist = mock_rank_and_narrate(flagged, config)
+
+    shortlist.market = market
+    return shortlist
+
+
+async def run_multi_property(urls: list[str], config: InvestmentConfig) -> Shortlist:
+    """
+    Analyze multiple Redfin listing URLs as a single ranked comparison.
+
+    Fetches all listings concurrently, then runs enrich → analyze → flag → narrate
+    as a batch, producing one unified shortlist report.
+    """
+    from tools.single_property import fetch_single_listing
+
+    _OUTPUTS_DIR.mkdir(exist_ok=True)
+
+    console.print(f"[dim]Fetching {len(urls)} listings...[/dim]")
+
+    # Fetch all listings concurrently
+    results = await asyncio.gather(*[fetch_single_listing(url) for url in urls], return_exceptions=True)
+
+    listings = []
+    for url, result in zip(urls, results):
+        if isinstance(result, Exception) or result is None:
+            console.print(f"[yellow]Skipping {url}: could not fetch[/yellow]")
+        else:
+            listing, _ = result
+            console.print(f"[dim]Fetched: {listing.address} — ${listing.price:,.0f}[/dim]")
+            listings.append(listing)
+
+    if not listings:
+        raise ValueError("Could not fetch any of the provided listings.")
+
+    market = config.output.market
+
+    # Enrich → analyze → flag → narrate (same as run_pipeline)
+    enrich_results = await enrich_all(listings, config.enrich)
+    analyzed = analyze_all(enrich_results, config.financial_assumptions)
+    flagged = flag_all(analyzed, config.criteria)
+
+    ranker = config.output.ranker
+    if ranker == "claude":
+        try:
+            shortlist = await _claude_rank_and_narrate(flagged, config)
+        except (anthropic.APIError, TypeError) as e:
             console.print(f"\n[red]Claude narration failed: {e}[/red]")
             shortlist = mock_rank_and_narrate(flagged, config)
     elif ranker == "ollama":

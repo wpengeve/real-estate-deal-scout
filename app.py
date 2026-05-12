@@ -1,3 +1,15 @@
+
+
+
+
+
+
+
+
+
+
+
+
 """
 Real Estate Deal Scout — FastAPI web server.
 
@@ -51,7 +63,7 @@ from db import (  # noqa: E402
     save_chat_session,
     upsert_report_run,
 )
-from pipeline import run as run_pipeline, run_single_property  # noqa: E402
+from pipeline import run as run_pipeline, run_single_property, run_multi_property  # noqa: E402
 from tools.fetch import resolve_address_to_url  # noqa: E402
 from tools.models import InvestmentConfig
 from tools.web_chat import ChatSession
@@ -61,6 +73,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 app = FastAPI(title="Real Estate Deal Scout")
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True
 
 _OUTPUTS_DIR = Path("outputs")
 _CONFIG_PATH = Path("config.yaml")
@@ -130,7 +143,8 @@ async def request_magic_link(req: AuthRequest, db: Session = Depends(get_db)):
 
     user = get_or_create_user(db, email)
     token = create_auth_token(db, user)
-    link = f"http://localhost:8000/auth/verify?token={token.token}"
+    base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+    link = f"{base_url}/auth/verify?token={token.token}"
 
     # No email service yet — print to console for dev/testing
     logger.info("Magic link for %s: %s", email, link)
@@ -185,8 +199,58 @@ class ChatRequest(BaseModel):
     message: str
 
 
+def _extract_addresses(text: str) -> list[str]:
+    """
+    Extract multiple addresses from a message, ignoring any surrounding text.
+    Handles newline-separated and inline comma-separated formats.
+    A line is an address if it starts with a house number followed by a street name.
+    """
+    import re
+    _addr_re = re.compile(
+        r"^\d+\s+\w.*\b(street|avenue|boulevard|road|drive|lane|way|place|court|"
+        r"circle|terrace|highway|parkway|square|st|ave|blvd|rd|dr|ln|pl|ct|cir|"
+        r"ter|hwy|pkwy|sq)\b",
+        re.I,
+    )
+    # Filter only lines that look like addresses
+    lines = [l.strip().rstrip(",").strip() for l in text.splitlines() if l.strip()]
+    addr_lines = [l for l in lines if _addr_re.match(l)]
+    if len(addr_lines) >= 2:
+        return addr_lines
+    # Fallback: try splitting entire text on comma boundaries before house numbers
+    parts = re.split(r",\s*(?=\d+\s+\w)", text)
+    parts = [p.strip().rstrip(",").strip() for p in parts if p.strip()]
+    addr_parts = [p for p in parts if _addr_re.match(p)]
+    if len(addr_parts) >= 2:
+        return addr_parts
+    return []
+
+
 @app.post("/api/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    # Intercept multi-address messages before sending to Claude
+    addresses = _extract_addresses(req.message)
+    if len(addresses) >= 2:
+        session = _chat_sessions.get(req.session_id)
+        if session and session.extracted:
+            config = session.build_config(_load_base_config())
+        else:
+            saved = load_chat_session(db, req.session_id)
+            if saved and saved[1]:
+                from tools.chat_intake import _build_config
+                config = _build_config(saved[1], _load_base_config())
+            else:
+                config = _load_base_config()
+
+        run_id = uuid.uuid4().hex[:8]
+        _runs[run_id] = {"status": "running", "progress": f"Resolving {len(addresses)} addresses..."}
+        upsert_report_run(db, run_id, user_id=user.id if user else None,
+                          market=config.output.market, status="running",
+                          criteria={"addresses": addresses})
+        asyncio.create_task(_run_multi_property_bg(run_id, addresses, config,
+                                                    user_id=user.id if user else None))
+        return {"text": f"🔍 Resolving {len(addresses)} addresses and comparing...", "run_id": run_id}
+
     if not os.getenv("ANTHROPIC_API_KEY"):
         raise HTTPException(
             status_code=503,
@@ -431,6 +495,108 @@ async def _run_single_property_bg(
 
     except Exception as e:
         logger.exception("Single-property analysis %s failed", run_id)
+        msg = str(e) or type(e).__name__
+        _runs[run_id] = {"status": "error", "progress": msg, "error": msg}
+        db = get_db()
+        try:
+            upsert_report_run(db, run_id, status="error")
+        finally:
+            db.close()
+
+
+# ── Multi-property analysis ───────────────────────────────────────────────────
+
+class AnalyzeMultiRequest(BaseModel):
+    session_id: str
+    addresses: list[str]
+
+
+@app.post("/api/analyze-multi")
+async def analyze_multi(
+    req: AnalyzeMultiRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Resolve multiple addresses → fetch listings → ranked comparison report."""
+    if not req.addresses or len(req.addresses) < 2:
+        raise HTTPException(status_code=422, detail="Please provide at least 2 addresses.")
+    if len(req.addresses) > 10:
+        raise HTTPException(status_code=422, detail="Maximum 10 addresses at once.")
+
+    session = _chat_sessions.get(req.session_id)
+    if session and session.extracted:
+        config = session.build_config(_load_base_config())
+    else:
+        saved = load_chat_session(db, req.session_id)
+        if saved and saved[1]:
+            from tools.chat_intake import _build_config
+            config = _build_config(saved[1], _load_base_config())
+        else:
+            config = _load_base_config()
+
+    run_id = uuid.uuid4().hex[:8]
+    _runs[run_id] = {"status": "running", "progress": f"Resolving {len(req.addresses)} addresses..."}
+    upsert_report_run(
+        db, run_id,
+        user_id=user.id if user else None,
+        market=config.output.market,
+        status="running",
+        criteria={"addresses": req.addresses},
+    )
+    asyncio.create_task(_run_multi_property_bg(run_id, req.addresses, config, user_id=user.id if user else None))
+    return {"run_id": run_id}
+
+
+async def _run_multi_property_bg(
+    run_id: str,
+    addresses: list[str],
+    config: InvestmentConfig,
+    user_id: int | None = None,
+) -> None:
+    try:
+        _runs[run_id]["progress"] = f"Resolving {len(addresses)} addresses concurrently..."
+        resolve_results = await asyncio.gather(
+            *[resolve_address_to_url(addr) for addr in addresses],
+            return_exceptions=True,
+        )
+
+        urls = []
+        failed = []
+        for address, result in zip(addresses, resolve_results):
+            if isinstance(result, Exception) or not result:
+                logger.warning("Could not resolve address: %s", address)
+                failed.append(address.split(",")[0])  # short label for progress
+            else:
+                urls.append(result)
+
+        if not urls:
+            raise ValueError("Could not resolve any of the provided addresses to Redfin listings.")
+
+        if failed:
+            _runs[run_id]["progress"] = (
+                f"Resolved {len(urls)}/{len(addresses)} addresses "
+                f"(skipped: {', '.join(failed)}). Analyzing..."
+            )
+        else:
+            _runs[run_id]["progress"] = f"Analyzing {len(urls)} properties..."
+        shortlist = await run_multi_property(urls, config)
+
+        _OUTPUTS_DIR.mkdir(exist_ok=True)
+        report_path = _OUTPUTS_DIR / f"web_{run_id}.html"
+
+        from tools.report import generate_report
+        generate_report(shortlist, report_path, config.financial_assumptions)
+
+        _runs[run_id] = {"status": "done", "progress": f"Compared {len(shortlist.deals)} properties"}
+
+        db = get_db()
+        try:
+            upsert_report_run(db, run_id, user_id=user_id, status="done", deals_found=len(shortlist.deals))
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.exception("Multi-property analysis %s failed", run_id)
         msg = str(e) or type(e).__name__
         _runs[run_id] = {"status": "error", "progress": msg, "error": msg}
         db = get_db()

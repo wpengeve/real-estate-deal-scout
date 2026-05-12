@@ -90,12 +90,17 @@ async def enrich_neighborhood(
     async def _get_rent() -> float | None:
         if listing.estimated_monthly_rent is not None:
             return listing.estimated_monthly_rent
+        rent = None
         if _HUD_API_KEY and listing.beds:
             rent = await _fetch_hud_fmr_rent(listing.beds, listing.address, enrich_config)
             if rent and enrich_config and enrich_config.hud_rent_multiplier != 1.0:
                 rent = round(rent * enrich_config.hud_rent_multiplier)
-            return rent
-        return None
+        if rent is None and listing.beds and enrich_config and enrich_config.fallback_monthly_rent_by_beds:
+            beds_key = min(max(listing.beds, 1), max(enrich_config.fallback_monthly_rent_by_beds.keys()))
+            rent = enrich_config.fallback_monthly_rent_by_beds.get(beds_key)
+            if rent:
+                logger.debug("HUD unavailable — using fallback rent $%s for %d beds", rent, listing.beds)
+        return rent
 
     async def _get_parcel() -> dict | None:
         if listing.tax_assessed_value is None or listing.zoning is None:

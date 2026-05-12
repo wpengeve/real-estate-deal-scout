@@ -24,10 +24,42 @@ from tools.models import DealNarrative, FinancialAssumptions, Shortlist
 from tools.solar import solar_score
 
 _RISK_COLOR = {
-    "LOW":    {"bg": "#dcfce7", "text": "#166534", "border": "#86efac"},
-    "MEDIUM": {"bg": "#fef9c3", "text": "#854d0e", "border": "#fde047"},
-    "HIGH":   {"bg": "#fee2e2", "text": "#991b1b", "border": "#fca5a5"},
+    "LOW":    {"bg": "#f0f9ff", "text": "#0369a1", "border": "#7dd3fc"},
+    "MEDIUM": {"bg": "#fff7ed", "text": "#9a3412", "border": "#fdba74"},
+    "HIGH":   {"bg": "#fdf2f8", "text": "#831843", "border": "#f0abfc"},
 }
+
+_RISK_LABEL = {
+    "LOW":    "✓ No Flags",
+    "MEDIUM": "⚠ Slow to Sell",
+    "HIGH":   "🌊 Flood Zone",
+}
+
+_VERDICT_COLOR = {
+    "strong buy":           {"bg": "#dcfce7", "text": "#14532d", "border": "#86efac"},
+    "buy":                  {"bg": "#d1fae5", "text": "#065f46", "border": "#6ee7b7"},
+    "consider":             {"bg": "#dbeafe", "text": "#1e3a8a", "border": "#93c5fd"},
+    "proceed with caution": {"bg": "#fef3c7", "text": "#78350f", "border": "#fcd34d"},
+    "pass":                 {"bg": "#fee2e2", "text": "#7f1d1d", "border": "#fca5a5"},
+}
+
+def _verdict_style(narrative: str) -> dict:
+    """Pick a color style based on the verdict keyword in the narrative."""
+    low = narrative.lower()
+    for key, style in _VERDICT_COLOR.items():
+        if key in low:
+            return style
+    return {"bg": "#f3f4f6", "text": "#374151", "border": "#d1d5db"}
+
+def _verdict_label(narrative: str) -> str:
+    """Extract the verdict line (last non-empty line) from the narrative."""
+    lines = [l.strip() for l in narrative.splitlines() if l.strip()]
+    return lines[-1] if lines else ""
+
+def _narrative_body(narrative: str) -> str:
+    """Return all lines except the last (verdict) line."""
+    lines = [l.strip() for l in narrative.splitlines() if l.strip()]
+    return lines[:-1] if len(lines) > 1 else lines
 
 
 def generate_report(
@@ -299,6 +331,286 @@ def _render_features(deal: DealNarrative) -> str:
     return f'<div class="features">{items}</div>'
 
 
+def _verdict_reasons(deal: DealNarrative) -> list[str]:
+    """Generate 2–4 specific data-driven reasons for the verdict."""
+    reasons = []
+    verdict = _verdict_label(deal.narrative).lower()
+
+    cap = deal.cap_rate
+    cf = deal.monthly_cashflow
+    coc = deal.coc_return
+    risk = deal.risk_level
+    hoa = deal.hoa_fee
+    dom = deal.days_on_market
+    flood = deal.flood_zone
+
+    # Cap rate assessment (always include if available)
+    if cap is not None:
+        cap_pct = f"{cap:.1%}"
+        if cap < 0.02:
+            reasons.append(f"Cap rate of {cap_pct} is well below a typical 5% investment threshold")
+        elif cap < 0.04:
+            reasons.append(f"Cap rate of {cap_pct} falls short of the 5% target — property generates limited income relative to price")
+        elif cap < 0.05:
+            reasons.append(f"Cap rate of {cap_pct} is close to but slightly under the 5% target")
+        elif cap >= 0.06:
+            reasons.append(f"Strong cap rate of {cap_pct} — well above the 5% benchmark")
+        else:
+            reasons.append(f"Cap rate of {cap_pct} meets the investment threshold")
+
+    # Cash flow assessment
+    if cf is not None:
+        cf_str = f"${cf:+,.0f}/mo"
+        if cf < -500:
+            reasons.append(f"Deeply negative cash flow ({cf_str}) means out-of-pocket losses every month")
+        elif cf < -200:
+            reasons.append(f"Negative cash flow ({cf_str}) requires monthly top-up from personal funds")
+        elif cf < 0:
+            reasons.append(f"Slightly negative cash flow ({cf_str}) — manageable but needs monitoring")
+        elif cf >= 300:
+            reasons.append(f"Healthy positive cash flow ({cf_str}) provides a solid income buffer")
+        else:
+            reasons.append(f"Near break-even cash flow ({cf_str})")
+
+    # Risk flags
+    if risk == "HIGH":
+        reasons.append("High risk flag — check flood zone, zoning restrictions, or other structural concerns")
+    elif risk == "MEDIUM" and "pass" in verdict:
+        reasons.append("Medium risk adds uncertainty on top of weak financials")
+
+    # HOA drag
+    if hoa and hoa > 400:
+        reasons.append(f"High HOA fee (${hoa:,.0f}/mo) significantly reduces net income")
+    elif hoa and hoa > 200 and cap is not None and cap < 0.04:
+        reasons.append(f"HOA fee (${hoa:,.0f}/mo) compounds the weak cap rate")
+
+    # Flood zone
+    if flood and flood not in ("X", "X500", ""):
+        reasons.append(f"Flood zone {flood} may require expensive flood insurance")
+
+    # Days on market signal
+    if dom is not None and dom > 60 and "pass" not in verdict:
+        reasons.append(f"{dom} days on market suggests limited buyer interest — may signal a pricing issue")
+    elif dom is not None and dom > 90:
+        reasons.append(f"Over {dom} days on market — sellers may be motivated to negotiate")
+
+    # Add actual risk flags from pipeline
+    for flag_desc in (deal.risk_flags or []):
+        if flag_desc not in reasons:  # avoid duplicating flood zone already mentioned
+            reasons.append(flag_desc)
+
+    return reasons[:6]  # cap at 6 bullets
+
+
+def _render_verdict_reasons(deal: DealNarrative) -> str:
+    reasons = _verdict_reasons(deal)
+    if not reasons:
+        return ""
+    items = "".join(f"<li>{r}</li>" for r in reasons)
+    return f'<ul class="verdict-reasons">{items}</ul>'
+
+
+_TARGET_CAP_RATE = 0.05  # 5% — standard threshold used across scoring
+# Portion of NOI expenses that scale with purchase price (maintenance 1% + tax 1.2%).
+_PRICE_DEPENDENT_EXPENSE_RATE = 0.01 + 0.012
+# Portion of rent that flows to NOI after vacancy (8%) and management (10%).
+_RENT_TO_NOI_FACTOR = (1 - 0.08) * (1 - 0.10)  # ≈ 0.828
+
+
+_DEFAULT_DOWN_PCT = 0.25
+_DEFAULT_LOAN_YEARS = 30
+
+
+def _noi_at_price(noi0: float, p0: float, p_new: float) -> float:
+    """Recalculate NOI at a different price, accounting for price-dependent expenses."""
+    k = _PRICE_DEPENDENT_EXPENSE_RATE
+    A = noi0 + k * p0
+    return A - k * p_new
+
+
+def _monthly_payment(loan: float, annual_rate: float, years: int = _DEFAULT_LOAN_YEARS) -> float:
+    """Standard fixed-rate mortgage payment formula."""
+    r = annual_rate / 12
+    n = years * 12
+    if r == 0:
+        return loan / n
+    return loan * r * (1 + r) ** n / ((1 + r) ** n - 1)
+
+
+def _derive_rate(monthly_payment: float, price: float,
+                 down_pct: float = _DEFAULT_DOWN_PCT,
+                 years: int = _DEFAULT_LOAN_YEARS) -> float:
+    """Back-calculate the annual interest rate from an existing mortgage payment via bisection."""
+    loan = price * (1 - down_pct)
+    lo, hi = 0.001, 0.20
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if _monthly_payment(loan, mid, years) > monthly_payment:
+            hi = mid
+        else:
+            lo = mid
+    return (lo + hi) / 2
+
+
+def _render_price_targets(deal: DealNarrative) -> str:
+    """
+    For Proceed with Caution / Pass verdicts, show a practical investment analysis:
+    - What the metrics look like at realistic negotiated prices (-10%, -15%, -20%)
+    - What monthly rent would be needed (at current price) to reach 5% cap rate
+    - A plain-language bottom-line assessment
+    """
+    verdict = _verdict_label(deal.narrative).lower()
+    if not any(v in verdict for v in ("proceed with caution", "pass")):
+        return ""
+    if not deal.noi_annual or not deal.price or deal.price <= 0:
+        return ""
+
+    p0 = deal.price
+    noi0 = deal.noi_annual
+    rent0 = deal.estimated_monthly_rent or 0.0
+    mortgage0 = deal.monthly_mortgage or 0.0
+
+    # ── Derive current interest rate from existing mortgage payment ────────────
+    current_rate = None
+    if mortgage0 > 0 and p0 > 0:
+        try:
+            current_rate = _derive_rate(mortgage0, p0)
+        except Exception:
+            pass
+    current_rate = current_rate or 0.07  # fall back to 7% if derivation fails
+    loan0 = p0 * (1 - _DEFAULT_DOWN_PCT)
+
+    # ── Scenario table: price cuts at current rate ─────────────────────────────
+    scenarios = [("−10%", 0.90), ("−15%", 0.85), ("−20%", 0.80)]
+    scenario_rows = []
+    best_cap_in_scenarios = 0.0
+    for label, factor in scenarios:
+        p_new = p0 * factor
+        noi_new = _noi_at_price(noi0, p0, p_new)
+        cap_new = noi_new / p_new if p_new > 0 else 0
+        best_cap_in_scenarios = max(best_cap_in_scenarios, cap_new)
+        mortgage_new = _monthly_payment(p_new * (1 - _DEFAULT_DOWN_PCT), current_rate)
+        cf_new = noi_new / 12 - mortgage_new
+        cap_cls = "pt-ok" if cap_new >= _TARGET_CAP_RATE * 0.8 else "pt-hard"
+        cf_cls = "pt-ok" if cf_new >= 0 else "pt-hard"
+        scenario_rows.append(
+            f"<tr>"
+            f"<td>{label} ({_fmt_currency(p_new)})</td>"
+            f"<td class='{cap_cls}'>{cap_new:.2%}</td>"
+            f"<td class='{cf_cls}'>{_fmt_cashflow(cf_new)}</td>"
+            f"</tr>"
+        )
+
+    # ── Rent needed to hit 5% cap at current price ────────────────────────────
+    target_noi = p0 * _TARGET_CAP_RATE
+    # NOI gap that rent must close (price-dependent expenses stay the same)
+    noi_gap = target_noi - noi0
+    rent_increase_needed = noi_gap / _RENT_TO_NOI_FACTOR / 12  # monthly
+    rent_needed = rent0 + rent_increase_needed
+
+    # ── Bottom-line assessment ─────────────────────────────────────────────────
+    # Is there any realistic path to a workable investment?
+    realistic_cap_close = best_cap_in_scenarios >= _TARGET_CAP_RATE * 0.7  # within 30% of target
+    rent_increase_pct = (rent_needed / rent0 - 1) * 100 if rent0 > 0 else float("inf")
+    rent_realistic = rent_increase_pct <= 20  # ≤20% rent increase is plausible
+
+    if realistic_cap_close and rent_realistic:
+        note = (
+            f"A 15–20% price negotiation combined with modest rent growth could make this work. "
+            f"Consider making an offer 15% below asking."
+        )
+        note_class = "pt-note pt-note--ok"
+    elif realistic_cap_close:
+        note = (
+            f"A 15–20% price cut brings the cap rate closer to viable — "
+            f"but rent would also need to reach {_fmt_currency(rent_needed)}/mo "
+            f"(up {rent_increase_pct:.0f}% from current estimate) to fully close the gap. "
+            f"Only makes sense if you expect strong rent appreciation."
+        )
+        note_class = "pt-note pt-note--ok"
+    elif rent_realistic:
+        note = (
+            f"Even at a 20% price cut this property falls short of investment targets. "
+            f"Rental income of {_fmt_currency(rent_needed)}/mo "
+            f"(+{rent_increase_pct:.0f}% vs current estimate) would be needed at today's price — "
+            f"verify local rents before dismissing entirely."
+        )
+        note_class = "pt-note pt-note--hard"
+    else:
+        note = (
+            f"No realistic path at current market conditions: a 20% price cut still leaves the "
+            f"cap rate far below target, and hitting 5% would require rent of "
+            f"{_fmt_currency(rent_needed)}/mo (+{rent_increase_pct:.0f}%). "
+            f"This is a poor investment property at this price — consider it appreciation-only."
+        )
+        note_class = "pt-note pt-note--hard"
+
+    # ── Rate sensitivity: what if rates drop 0.5% or 1% ──────────────────────
+    rate_rows = []
+    rate_scenarios = []
+    if current_rate > 0.065:
+        rate_scenarios.append((f"{(current_rate - 0.005) * 100:.1f}%", current_rate - 0.005))
+    if current_rate > 0.055:
+        rate_scenarios.append((f"{(current_rate - 0.010) * 100:.1f}%", current_rate - 0.010))
+    rate_scenarios.append((f"{(current_rate - 0.015) * 100:.1f}%", current_rate - 0.015))
+
+    for rate_label, rate in rate_scenarios:
+        if rate <= 0:
+            continue
+        # At current price, new rate
+        cf_rate_only = noi0 / 12 - _monthly_payment(loan0, rate)
+        # At -15% price, new rate (combined scenario)
+        p15 = p0 * 0.85
+        noi15 = _noi_at_price(noi0, p0, p15)
+        cf_combined = noi15 / 12 - _monthly_payment(p15 * (1 - _DEFAULT_DOWN_PCT), rate)
+        cf_cls = "pt-ok" if cf_rate_only >= 0 else ("pt-ok" if cf_rate_only > -500 else "pt-hard")
+        cf_combined_cls = "pt-ok" if cf_combined >= 0 else "pt-hard"
+        rate_rows.append(
+            f"<tr>"
+            f"<td>{rate_label} rate, current price</td>"
+            f"<td>—</td>"
+            f"<td class='{cf_cls}'>{_fmt_cashflow(cf_rate_only)}</td>"
+            f"</tr>"
+            f"<tr>"
+            f"<td>{rate_label} rate + −15% price</td>"
+            f"<td>—</td>"
+            f"<td class='{cf_combined_cls}'>{_fmt_cashflow(cf_combined)}</td>"
+            f"</tr>"
+        )
+
+    scenario_rows_html = "\n".join(scenario_rows)
+    rate_rows_html = "\n".join(rate_rows)
+    rate_section = (
+        f'<div class="pt-rate-header">If interest rates drop (from current ~{current_rate*100:.1f}%)</div>'
+        f'<table class="pt-table">'
+        f'<thead><tr><th>Scenario</th><th>Cap rate</th><th>Monthly cash flow</th></tr></thead>'
+        f'<tbody>{rate_rows_html}</tbody>'
+        f'</table>'
+    ) if rate_rows_html else ""
+
+    rent_row = (
+        f'<div class="pt-rent-note">'
+        f'Rent needed at current price for 5% cap rate: '
+        f'<strong>{_fmt_currency(rent_needed)}/mo</strong> '
+        f'(current estimate: {_fmt_currency(rent0)}/mo, +{rent_increase_pct:.0f}%)'
+        f'</div>'
+        if rent0 > 0 else ""
+    )
+
+    return f"""
+<div class="price-targets">
+  <div class="pt-title">What would it take to make this deal work?</div>
+  <div class="pt-rate-label">At current rate ~{current_rate*100:.1f}% — price negotiation scenarios</div>
+  <table class="pt-table">
+    <thead><tr><th>Negotiated price</th><th>Cap rate</th><th>Monthly cash flow</th></tr></thead>
+    <tbody>{scenario_rows_html}</tbody>
+  </table>
+  {rate_section}
+  {rent_row}
+  <p class="{note_class}">{note}</p>
+</div>"""
+
+
 def _render_deal(deal: DealNarrative, idx: int) -> str:
     risk = _RISK_COLOR.get(deal.risk_level, _RISK_COLOR["LOW"])
     cf_class = _cashflow_class(deal.monthly_cashflow)
@@ -316,6 +628,16 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
         redfin_btn = f'<a href="{deal.listing_url}" target="_blank" rel="noopener" class="redfin-btn">View on Redfin →</a>'
 
     photo_html = _photo_div(deal)
+    narrative_html = "".join(f"<p>{line}</p>" for line in _narrative_body(deal.narrative))
+    _vl = _verdict_label(deal.narrative)
+    if _vl:
+        _vs = _verdict_style(deal.narrative)
+        verdict_html = (
+            f'<div class="verdict-banner" style="background:{_vs["bg"]};'
+            f'color:{_vs["text"]};border-color:{_vs["border"]}">{_vl}</div>'
+        )
+    else:
+        verdict_html = ""
 
     # data attributes for JS recalculation
     noi_attr = f' data-noi-annual="{deal.noi_annual}"' if deal.noi_annual is not None else ""
@@ -337,7 +659,7 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
         </div>
       </div>
       <div class="risk-badge" style="background:{risk['bg']};color:{risk['text']};border-color:{risk['border']}">
-        {deal.risk_level}
+        {_RISK_LABEL.get(deal.risk_level, deal.risk_level)}
       </div>
     </div>
 
@@ -371,7 +693,10 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
 
     {_render_features(deal)}
 
-    <div class="narrative">{deal.narrative}</div>
+    <div class="narrative">{narrative_html}</div>
+    {verdict_html}
+    {_render_verdict_reasons(deal)}
+    {_render_price_targets(deal)}
 
     {_render_schools(deal)}
     {_render_zoning_potential(deal)}
@@ -597,12 +922,131 @@ body {{
 
 /* ── Narrative ── */
 .narrative {{
-  font-size: 1rem;
-  color: #334155;
-  line-height: 1.7;
   border-top: 1px solid #f1f5f9;
   padding-top: 0.875rem;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}}
+.narrative p {{
+  font-size: 0.9rem;
+  color: #334155;
+  line-height: 1.6;
+  margin: 0;
+}}
+.narrative p:last-child {{
+  font-weight: 500;
+  color: #0f172a;
+}}
+
+/* ── Verdict banner ── */
+.verdict-banner {{
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: 8px;
+  border: 1px solid;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}}
+
+/* ── Verdict reasons ── */
+.verdict-reasons {{
+  margin: 0.5rem 0 0 0;
+  padding: 0.625rem 0.875rem 0.625rem 1.5rem;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  font-size: 0.82rem;
+  color: #475569;
+  line-height: 1.6;
+}}
+.verdict-reasons li {{
+  margin-bottom: 0.2rem;
+}}
+.verdict-reasons li:last-child {{
+  margin-bottom: 0;
+}}
+
+/* ── Price targets ── */
+.price-targets {{
+  margin-top: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}}
+.pt-title {{
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin-bottom: 0.5rem;
+}}
+.pt-table {{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}}
+.pt-table th {{
+  text-align: left;
+  padding: 0.2rem 0.5rem 0.2rem 0;
+  color: #94a3b8;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #e2e8f0;
+}}
+.pt-table td {{
+  padding: 0.3rem 0.5rem 0.3rem 0;
+  color: #334155;
+  border-bottom: 1px solid #f1f5f9;
+}}
+.pt-table tr:last-child td {{
+  border-bottom: none;
+}}
+.pt-ok {{ color: #b45309; }}
+.pt-hard {{ color: #dc2626; font-weight: 600; }}
+.pt-note {{
+  margin: 0.5rem 0 0 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+}}
+.pt-note--ok {{
+  background: #fefce8;
+  color: #713f12;
+  border: 1px solid #fde68a;
+}}
+.pt-note--hard {{
+  background: #fff1f2;
+  color: #9f1239;
+  border: 1px solid #fecdd3;
+}}
+.pt-rate-label {{
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-bottom: 0.3rem;
+  font-style: italic;
+}}
+.pt-rate-header {{
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+  margin: 0.6rem 0 0.3rem 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e2e8f0;
+}}
+.pt-rent-note {{
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-top: 0.5rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid #f1f5f9;
 }}
 
 /* ── Zoning potential ── */
@@ -725,7 +1169,7 @@ body {{
 
 <div class="page-header">
   <h1>Deal Scout &nbsp;·&nbsp; {shortlist.market}</h1>
-  <p class="subtitle">Top {count} investment {'property' if count == 1 else 'properties'} &nbsp;·&nbsp; Click a photo to view on Redfin</p>
+  <p class="subtitle">Click any photo to open on Redfin</p>
   <div class="summary-bar">{shortlist.run_summary}</div>
 </div>
 
@@ -750,15 +1194,14 @@ body {{
       <option value="30" {'selected' if default_term == 30 else ''}>30 yr</option>
     </select>
   </label>
-  <label>
+  {f'''<label>
     Show top:
     <select id="selectShow" onchange="applyShowFilter()">
-      <option value="3">3</option>
-      <option value="5" selected>5</option>
-      <option value="10">10</option>
+      <option value="5" {'selected' if count <= 10 else ''}>5</option>
+      <option value="10" {'selected' if count > 10 else ''}>10</option>
       <option value="0">All</option>
     </select>
-  </label>
+  </label>''' if count > 5 else ''}
   <span class="recalc-note">Cash flow &amp; CoC update live · cap rate is unaffected by financing</span>
 </div>
 
@@ -789,7 +1232,9 @@ body {{
   }}
 
   window.applyShowFilter = function() {{
-    var n = parseInt(document.getElementById('selectShow').value);
+    var sel = document.getElementById('selectShow');
+    if (!sel) return;
+    var n = parseInt(sel.value);
     document.querySelectorAll('.card[data-rank]').forEach(function(card) {{
       var rank = parseInt(card.dataset.rank);
       card.style.display = (n === 0 || rank <= n) ? '' : 'none';

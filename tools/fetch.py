@@ -643,9 +643,11 @@ async def resolve_address_to_url(address: str) -> str | None:
     Resolve a plain address string to a Redfin listing URL.
 
     Strategy:
-      1. Proxy Brave Search through ScraperAPI (rotates IPs → no rate limits).
-      2. Fall back to direct Brave Search (works if not rate-limited).
-      3. Fall back to DuckDuckGo direct.
+      1. Redfin autocomplete API via ScraperAPI (exact match, most reliable).
+      2. Redfin autocomplete API direct (works if not rate-limited).
+      3. Brave Search via ScraperAPI (fallback web search).
+      4. Brave Search direct.
+      5. DuckDuckGo direct.
 
     Filters candidate URLs by house number to avoid nearby-listing false matches.
     Returns the full Redfin URL or None if not found.
@@ -665,6 +667,7 @@ async def resolve_address_to_url(address: str) -> str | None:
     street_num = street_m.group(1) if street_m else ""
 
     _LISTING_SEGS = ("/home/", "/condo/", "/townhouse/", "/other/", "/unit/")
+    _REDFIN_BASE = "https://www.redfin.com"
 
     def _best_match(urls: list[str]) -> str | None:
         candidates = [u for u in urls if any(s in u for s in _LISTING_SEGS)]
@@ -680,9 +683,31 @@ async def resolve_address_to_url(address: str) -> str | None:
                     score += 1
                 scored.append((score, u))
             scored.sort(key=lambda x: -x[0])
-            if scored[0][0] > 0:
+            # Only return a result if it actually matched the house number;
+            # never fall back to a random first candidate.
+            if scored[0][0] >= 2:
                 return scored[0][1]
+            return None
         return candidates[0]
+
+    def _autocomplete_url_from_response(data: dict) -> str | None:
+        """Extract the best listing URL from a Redfin autocomplete API response."""
+        results = (data.get("payload") or {}).get("resultList") or []
+        for r in results:
+            url = r.get("url", "")
+            # type 4 = property/listing; also accept any result with a listing segment
+            if any(s in url for s in _LISTING_SEGS):
+                full_url = _REDFIN_BASE + url if url.startswith("/") else url
+                # Verify it matches the house number if we have one
+                if not house_num or f"/{house_num}-" in full_url or f"/{house_num}/" in full_url:
+                    logger.debug("Autocomplete hit: %s", full_url)
+                    return full_url
+        return None
+
+    autocomplete_endpoint = (
+        f"{_REDFIN_AUTOCOMPLETE_URL}"
+        f"?location={addr.replace(' ', '+')}&v=2&start=0&count=10"
+    )
 
     _BRAVE_URL = f"https://search.brave.com/search?q={query.replace(' ', '+')}"
     _DDG_HEADERS = {
@@ -701,7 +726,54 @@ async def resolve_address_to_url(address: str) -> str | None:
 
     try:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            # Primary: Brave via ScraperAPI proxy (bypasses IP rate limits)
+            # Strategy 1: Redfin autocomplete via ScraperAPI (exact match, most reliable)
+            if _SCRAPERAPI_KEY:
+                try:
+                    resp = await client.get(
+                        "https://api.scraperapi.com/",
+                        params={"api_key": _SCRAPERAPI_KEY, "url": autocomplete_endpoint},
+                        timeout=25.0,
+                    )
+                    if resp.status_code == 200:
+                        # Strip Redfin's "{}&&" JSONP prefix if present
+                        text = resp.text.lstrip()
+                        if text.startswith("{") or "payload" in text:
+                            try:
+                                import json as _json
+                                # Redfin prepends "{}&&" to prevent JSON hijacking
+                                clean = _re.sub(r"^\{\}&&", "", text)
+                                data = _json.loads(clean)
+                                result = _autocomplete_url_from_response(data)
+                                if result:
+                                    logger.info("Resolved %r → %s (autocomplete/scraperapi)", addr, result)
+                                    return result
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+            # Strategy 2: Redfin autocomplete direct
+            try:
+                resp = await client.get(
+                    autocomplete_endpoint,
+                    headers=_DDG_HEADERS,
+                    timeout=12.0,
+                )
+                if resp.status_code == 200:
+                    try:
+                        import json as _json
+                        clean = _re.sub(r"^\{\}&&", "", resp.text.lstrip())
+                        data = _json.loads(clean)
+                        result = _autocomplete_url_from_response(data)
+                        if result:
+                            logger.info("Resolved %r → %s (autocomplete/direct)", addr, result)
+                            return result
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # Strategy 3: Brave via ScraperAPI proxy (web search fallback)
             if _SCRAPERAPI_KEY:
                 try:
                     resp = await client.get(
@@ -717,7 +789,7 @@ async def resolve_address_to_url(address: str) -> str | None:
                 except Exception:
                     pass
 
-            # Fallback 1: Brave direct
+            # Strategy 4: Brave direct
             try:
                 resp = await client.get(
                     "https://search.brave.com/search",
@@ -733,7 +805,7 @@ async def resolve_address_to_url(address: str) -> str | None:
             except Exception:
                 pass
 
-            # Fallback 2: DuckDuckGo direct
+            # Strategy 5: DuckDuckGo direct
             from urllib.parse import unquote as _unquote
             try:
                 resp = await client.get(

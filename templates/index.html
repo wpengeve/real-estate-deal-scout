@@ -177,8 +177,6 @@
         <form method="post" action="/api/logout" style="margin:0">
           <button type="submit" class="btn-link">Sign out</button>
         </form>
-      {% else %}
-        <button class="btn-link" onclick="openAuthModal()">Sign in</button>
       {% endif %}
     </div>
   </header>
@@ -198,7 +196,7 @@
     </div>
 
     <div class="input-bar">
-      <textarea id="msg-input" placeholder="Describe what you're looking for…" rows="1"></textarea>
+      <textarea id="msg-input" placeholder="Describe what you're looking for… or paste one address (or multiple, one per line)" rows="1"></textarea>
       <button class="btn-primary" id="send-btn" onclick="sendMessage()">Send</button>
     </div>
   </div>
@@ -498,11 +496,47 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
     }
   }
 
+  async function analyzeMultiAddresses(addresses) {
+    showProgress(`Resolving ${addresses.length} addresses...`);
+    try {
+      const res = await fetch('/api/analyze-multi', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ session_id: SESSION_ID, addresses }),
+      });
+      if (!res.ok) {
+        hideProgress();
+        const err = await res.json().catch(() => ({}));
+        appendMsg('agent', '⚠️ ' + (err.detail || 'Could not analyze properties.'));
+        return;
+      }
+      const { run_id } = await res.json();
+      _lastChatTab = 'chat';
+      pollStatus(run_id);
+    } catch {
+      hideProgress();
+      appendMsg('agent', '⚠️ Could not reach the server.');
+    }
+  }
+
   async function sendMessage() {
     const text = inputEl.value.trim(); if (!text) return;
     inputEl.value = ''; inputEl.style.height = 'auto';
     sendBtn.disabled = true;
     appendMsg('user', text);
+
+    // 0. Multiple addresses — newline-separated OR comma-separated where each
+    //    segment starts with a house number (e.g. "123 Main St, ..., 456 Oak Ave, ...")
+    let lines = text.split('\n').map(l => l.trim().replace(/,+$/, '').trim()).filter(Boolean);
+    // If only one "line", try splitting on ", \d+" boundaries (inline comma-separated addresses)
+    if (lines.length < 2) {
+      lines = text.split(/,\s*(?=\d+\s+\w)/).map(l => l.trim().replace(/,+$/, '').trim()).filter(Boolean);
+    }
+    if (lines.length >= 2 && lines.every(looksLikeAddress)) {
+      appendMsg('agent', `🔍 Resolving ${lines.length} addresses and comparing...`);
+      await analyzeMultiAddresses(lines);
+      sendBtn.disabled = false; inputEl.focus();
+      return;
+    }
 
     // 1. Direct Redfin URL — analyze immediately
     const redfinUrl = extractRedfinUrl(text);
@@ -551,6 +585,7 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
       }
       const data = await res.json();
       appendMsg('agent', data.text);
+      if (data.run_id) { showProgress('Analyzing properties...'); pollStatus(data.run_id); return; }
       if (data.confirmed && data.criteria) showChatCriteria(data.criteria);
     } catch {
       hideTyping();
@@ -648,6 +683,14 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   async function pollStatus(runId) {
     try {
       const res = await fetch('/api/run/' + runId);
+      if (res.status === 404) {
+        hideProgress();
+        const findBtn = document.getElementById('chat-find-btn');
+        if (findBtn) findBtn.disabled = false;
+        switchTab(_lastChatTab);
+        appendMsg('agent', '⚠️ Analysis session expired (server may have restarted). Please try your request again.');
+        return;
+      }
       const data = await res.json();
       progressText.textContent = data.progress || 'Running…';
       if (data.status === 'done' && data.report_url) {

@@ -30,11 +30,20 @@ fetch:
 enrich:
   hud_rent_multiplier: 1.0       # Validated against Zillow Rent Zestimate (Apr 2026): HUD FMR
                                  # already tracks Seattle market well; 1.25 was overestimating ~29%
-  # County is auto-detected from listing ZIP via USPS crosswalk (HUD + Census APIs).
-  # To override (e.g. if crosswalk is unavailable), uncomment:
-  # hud_state_fips: "53"          # WA=53 (census.gov/geo/reference/ansi_statetables)
-  # hud_county_name: "King County"
+  # County fallback — used when HUD_API_KEY is absent and ZIP crosswalk fails.
+  # Auto-detection still runs first when HUD_API_KEY is set.
+  hud_state_fips: "53"          # WA=53 (census.gov/geo/reference/ansi_statetables)
+  hud_county_name: "King County"
   # Requires HUD_API_KEY in .env — free at huduser.gov/portal/dataset/fmr-api.html
+
+  # Fallback rents (used when HUD API is unavailable or key is missing).
+  # Based on Zillow Rent Zestimate medians for Seattle/King County metro (Apr 2026).
+  # Keys are bedroom count (1–4+).
+  fallback_monthly_rent_by_beds:
+    1: 1850
+    2: 2400
+    3: 3200
+    4: 3800
 
 
 criteria:

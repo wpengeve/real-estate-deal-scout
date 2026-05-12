@@ -28,47 +28,52 @@ def _score(f: FlaggedListing) -> float:
     return cap * 0.6 + coc * 0.4 + penalty
 
 
+def _verdict(f: FlaggedListing, config: InvestmentConfig) -> str:
+    fin = f.financials
+    target = config.criteria.target_cap_rate
+    cap = fin.cap_rate or 0.0
+    cf = fin.monthly_cashflow or 0.0
+
+    if not fin.success:
+        return "Pass — no financial data available."
+    if cap >= target and cf >= 0:
+        return "Strong Buy — cap rate meets target with positive cash flow."
+    if cap >= target * 0.8 and cf >= -200:
+        return "Buy — solid fundamentals, manageable cash flow gap."
+    if cap >= target * 0.5 and f.risks.overall_risk != RiskLevel.HIGH:
+        return "Consider — below target but location or appreciation potential may justify."
+    if cap >= target * 0.2:
+        return "Proceed with Caution — significant gap; needs price cut or higher rent."
+    return "Pass — deeply negative returns with no clear path to profitability."
+
+
 def _narrative(rank: int, f: FlaggedListing, config: InvestmentConfig) -> str:
     fin = f.financials
     risk = f.risks
 
     if not fin.success:
         return (
-            f"Financial analysis unavailable for this property "
-            f"(reason: {fin.failure_reason}). "
-            "Insufficient data to assess investment merit — ranked last."
+            f"Financial analysis unavailable (reason: {fin.failure_reason}).\n"
+            f"Insufficient data to assess investment merit.\n"
+            "Pass — no financial data available."
         )
 
     cap_str = f"{fin.cap_rate:.1%}" if fin.cap_rate is not None else "N/A"
-    coc_str = f"{fin.coc_return:.1%}" if fin.coc_return is not None else "N/A"
-    cf_str = (
-        f"${fin.monthly_cashflow:+,.0f}/mo" if fin.monthly_cashflow is not None else "N/A"
-    )
+    cf_str = f"${fin.monthly_cashflow:+,.0f}/mo" if fin.monthly_cashflow is not None else "N/A"
     rent_str = (
         f"${f.estimated_monthly_rent:,.0f}/mo"
         if f.estimated_monthly_rent is not None
         else "unknown rent"
     )
 
-    parts = [
-        f"Cap rate {cap_str}, CoC {coc_str}, monthly cash flow {cf_str} "
-        f"on {rent_str} estimated rent."
-    ]
-
+    line1 = f"{f.listing.home_type or 'Property'} at {f.listing.address.split(',')[0]}."
+    line2 = f"Cap rate {cap_str}, cash flow {cf_str} on {rent_str} estimated rent."
     if risk.overall_risk == RiskLevel.HIGH:
-        flag_descs = ", ".join(rf.description for rf in risk.flags)
-        parts.append(f"HIGH RISK: {flag_descs}.")
-    elif risk.overall_risk == RiskLevel.MEDIUM:
-        flag_descs = ", ".join(rf.description for rf in risk.flags)
-        parts.append(f"Medium risk noted: {flag_descs}.")
+        flag_descs = "; ".join(rf.description for rf in risk.flags[:2])
+        line2 += f" HIGH RISK: {flag_descs}."
+    line3 = _verdict(f, config)
 
-    if fin.cap_rate is not None and fin.cap_rate >= config.criteria.target_cap_rate:
-        parts.append(
-            f"Cap rate exceeds target of {config.criteria.target_cap_rate:.1%} — "
-            "meets investment threshold."
-        )
-
-    return " ".join(parts)
+    return f"{line1}\n{line2}\n{line3}"
 
 
 def mock_rank_and_narrate(
@@ -118,6 +123,7 @@ def mock_rank_and_narrate(
                 tax_assessed_improvement=f.listing.tax_assessed_improvement,
                 zoning=f.listing.zoning,
                 risk_level=f.risks.overall_risk.value,
+                risk_flags=[rf.description for rf in f.risks.flags],
                 narrative=_narrative(rank, f, config),
                 zoning_potential=f.zoning_potential,
                 appreciation=f.appreciation,

@@ -89,12 +89,17 @@ def analyze_financials(
     # Property taxes: use listing data if available, else estimate
     property_tax_annual = listing.property_tax_annual or (price * a.property_tax_rate_pct)
 
+    # Insurance: config value is a minimum floor; for high-value properties use 0.3%
+    # of value (standard landlord insurance rule of thumb). A $1.2M home costs ~$3,600/yr
+    # to insure — far above the $1,200 default which is only realistic below ~$400K.
+    insurance_annual = max(a.insurance_annual, price * 0.003)
+
     # NOI
     annual_gross_rent = monthly_rent * 12
     annual_eff_rent = annual_gross_rent * (1 - a.vacancy_rate)
     management_annual = annual_eff_rent * a.management_fee_pct
     maintenance_annual = price * a.maintenance_pct_of_value
-    noi = annual_eff_rent - management_annual - maintenance_annual - a.insurance_annual - property_tax_annual
+    noi = annual_eff_rent - management_annual - maintenance_annual - insurance_annual - property_tax_annual
 
     cap_rate = noi / price
 
@@ -115,7 +120,7 @@ def analyze_financials(
         - monthly_mortgage
         - (management_annual / 12)
         - (maintenance_annual / 12)
-        - (a.insurance_annual / 12)
+        - (insurance_annual / 12)
         - (property_tax_annual / 12)
     )
 

@@ -271,12 +271,19 @@ def _parse_raw_listing(html: str, url: str, features: ListingFeatures) -> RawLis
 
     # ── Days on market ─────────────────────────────────────────────────────────
     dom = None
-    for pat in [r'"daysOnMarket"\s*:\s*(\d+)', r'"dom"\s*:\s*(\d+)']:
-        m = re.search(pat, html)
+    for pat in [
+        r'cumulativeDaysOnMarket[^0-9]{0,10}(\d+)',  # Redfin JSON (escaped): \"cumulativeDaysOnMarket\":242
+        r'Days\s+On\s+Market:\s*(\d+)',               # Redfin page text
+        r'"daysOnMarket"\s*:\s*(\d+)',                # older Redfin JSON format
+        r'"dom"\s*:\s*(\d+)',
+    ]:
+        m = re.search(pat, html, re.I)
         if m:
             try:
                 dom = int(m.group(1))
-                break
+                if dom > 0:
+                    break
+                dom = None
             except ValueError:
                 pass
 
@@ -344,9 +351,14 @@ def _extract_address(html: str, url: str) -> str:
         mp = re.search(r'"postalCode"\s*:\s*"([^"]+)"', html)
         if mp:
             postal = mp.group(1)
-        parts = [p for p in [street, city, region, postal] if p]
-        if parts:
-            return ", ".join(parts)
+        # Format: "123 Main St, Seattle, WA 98103" (no comma before ZIP)
+        # The enrich ZIP regex requires "ST ZIPCODE" not "ST, ZIPCODE"
+        city_region = ", ".join(p for p in [city, region] if p)
+        addr = ", ".join(p for p in [street, city_region] if p)
+        if postal:
+            addr = f"{addr} {postal}" if addr else postal
+        if addr:
+            return addr
 
     # Try og:title — usually "123 Main St, Seattle, WA 98101 | Redfin"
     m = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\'|]+)', html)

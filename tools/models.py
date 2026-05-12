@@ -29,6 +29,7 @@ class EnrichConfig(BaseModel):
     hud_state_fips: str | None = None       # auto-detected from listing ZIP via crosswalk; override e.g. "53" for WA
     hud_county_name: str | None = None      # auto-detected from listing ZIP via crosswalk; override e.g. "King County"
     hud_rent_multiplier: float = 1.0        # scale HUD FMR rent up for high-cost markets (e.g. 1.25 for Seattle)
+    fallback_monthly_rent_by_beds: dict[int, float] | None = None  # used when HUD API is unavailable; keys are bed count
 
 
 class ScreeningCriteria(BaseModel):
@@ -256,6 +257,7 @@ class DealNarrative(BaseModel):
     tax_assessed_improvement: float | None = None
     zoning: str | None = None
     risk_level: str
+    risk_flags: list[str] = Field(default_factory=list)
     narrative: str
     zoning_potential: ZoningPotential | None = None
     appreciation: AppreciationSignals | None = None

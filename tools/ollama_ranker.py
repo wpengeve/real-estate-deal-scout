@@ -270,6 +270,7 @@ def _make_deal(
         tax_assessed_improvement=f.listing.tax_assessed_improvement,
         zoning=f.listing.zoning,
         risk_level=f.risks.overall_risk.value,
+        risk_flags=[rf.description for rf in f.risks.flags],
         narrative=narrative,
         zoning_potential=f.zoning_potential,
         appreciation=f.appreciation,
