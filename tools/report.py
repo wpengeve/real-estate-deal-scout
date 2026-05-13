@@ -779,9 +779,92 @@ def _render_map(shortlist: Shortlist) -> str:
     )
 
 
+def _render_comparison_table(shortlist: Shortlist) -> str:
+    """Side-by-side comparison table shown above cards when there are 2+ deals."""
+    if len(shortlist.deals) < 2:
+        return ""
+
+    rows = []
+    for d in shortlist.deals:
+        verdict = _verdict_label(d.narrative)
+        vstyle = _verdict_style(d.narrative)
+        risk = _RISK_COLOR.get(d.risk_level, _RISK_COLOR["LOW"])
+
+        price_str = f"${d.price:,.0f}" if d.price else "—"
+        if d.beds and d.baths:
+            bed_bath = f"{d.beds}bd / {d.baths:g}ba"
+        elif d.beds:
+            bed_bath = f"{d.beds}bd"
+        else:
+            bed_bath = "—"
+        cap_str = f"{d.cap_rate * 100:.2f}%" if d.cap_rate is not None else "—"
+        if d.monthly_cashflow is not None:
+            sign = "+" if d.monthly_cashflow >= 0 else ""
+            cf_cls = "positive" if d.monthly_cashflow >= 0 else "negative"
+            cf_str = f"{sign}${abs(round(d.monthly_cashflow)):,}/mo"
+        else:
+            cf_cls = ""
+            cf_str = "—"
+        ws_str = str(d.walk_score) if d.walk_score is not None else "—"
+        street = d.address.split(",")[0]
+        risk_label = _RISK_LABEL.get(d.risk_level, d.risk_level)
+        risk_style = (
+            f"background:{risk['bg']};color:{risk['text']};"
+            f"border-color:{risk['border']}"
+        )
+        verdict_style = (
+            f"background:{vstyle['bg']};color:{vstyle['text']};"
+            f"border:1px solid {vstyle['border']}"
+        )
+        rows.append(
+            f'    <tr data-rank="{d.rank}">\n'
+            f'      <td class="ct-rank">{d.rank}</td>\n'
+            f'      <td class="ct-address">{street}</td>\n'
+            f'      <td class="ct-price">{price_str}</td>\n'
+            f'      <td class="ct-bedbath">{bed_bath}</td>\n'
+            f'      <td class="ct-cap">{cap_str}</td>\n'
+            f'      <td class="ct-cf {cf_cls}">{cf_str}</td>\n'
+            f'      <td class="ct-ws">{ws_str}</td>\n'
+            f'      <td class="ct-risk"><span class="risk-badge" style="{risk_style}">'
+            f'{risk_label}</span></td>\n'
+            f'      <td class="ct-verdict"><span class="verdict-chip" style="{verdict_style}">'
+            f'{verdict}</span></td>\n'
+            f'    </tr>'
+        )
+
+    rows_html = "\n".join(rows)
+    return (
+        '<div class="comparison-table-wrap">\n'
+        '  <div class="ct-header">'
+        '<span class="ct-title">Side-by-Side Comparison</span>'
+        '<span class="ct-note">&nbsp;· cap rate is net (excludes financing costs)</span>'
+        "</div>\n"
+        '  <div class="ct-scroll">\n'
+        '    <table class="comparison-table">\n'
+        "      <thead><tr>\n"
+        "        <th>#</th>\n"
+        "        <th>Address</th>\n"
+        "        <th>Price</th>\n"
+        "        <th>Bed / Bath</th>\n"
+        "        <th>Cap Rate</th>\n"
+        "        <th>Cash Flow</th>\n"
+        "        <th>Walk</th>\n"
+        "        <th>Risk</th>\n"
+        "        <th>Verdict</th>\n"
+        "      </tr></thead>\n"
+        "      <tbody>\n"
+        + rows_html
+        + "\n      </tbody>\n"
+        "    </table>\n"
+        "  </div>\n"
+        "</div>\n"
+    )
+
+
 def _render(shortlist: Shortlist, assumptions: FinancialAssumptions | None = None) -> str:
     cards_html = "\n".join(_render_deal(d, i) for i, d in enumerate(shortlist.deals))
     map_section = _render_map(shortlist)
+    comparison_table = _render_comparison_table(shortlist)
     has_map = bool(map_section)
     count = len(shortlist.deals)
 
@@ -1240,6 +1323,53 @@ body {{
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }}
 
+/* ── Comparison table ── */
+.comparison-table-wrap {{
+  max-width: 1100px;
+  margin: 1.25rem auto 0;
+  padding: 0 1.5rem;
+}}
+.ct-header {{
+  display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.5rem;
+}}
+.ct-title {{
+  font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: #475569;
+}}
+.ct-note {{ font-size: 0.72rem; color: #94a3b8; }}
+.ct-scroll {{ overflow-x: auto; border-radius: 10px; }}
+.comparison-table {{
+  width: 100%; border-collapse: collapse; font-size: 0.82rem;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden;
+}}
+.comparison-table th {{
+  text-align: left; padding: 0.5rem 0.75rem;
+  background: #f8fafc; color: #64748b; font-weight: 600;
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em;
+  border-bottom: 1px solid #e2e8f0; white-space: nowrap;
+}}
+.comparison-table td {{
+  padding: 0.45rem 0.75rem; border-bottom: 1px solid #f1f5f9; vertical-align: middle;
+}}
+.comparison-table tr:last-child td {{ border-bottom: none; }}
+.comparison-table tr:hover td {{ background: #f8fafc; }}
+.ct-rank {{ font-weight: 800; color: #2563eb; width: 1.5rem; }}
+.ct-address {{ font-weight: 600; color: #0f172a; }}
+.ct-price {{ font-weight: 600; white-space: nowrap; }}
+.ct-bedbath {{ color: #64748b; white-space: nowrap; }}
+.ct-cap {{ font-weight: 700; color: #0369a1; white-space: nowrap; }}
+.ct-cf {{ font-weight: 700; white-space: nowrap; }}
+.ct-cf.positive {{ color: #16a34a; }}
+.ct-cf.negative {{ color: #dc2626; }}
+.ct-ws {{ color: #64748b; text-align: center; }}
+.verdict-chip {{
+  font-size: 0.68rem; font-weight: 600; padding: 0.15rem 0.5rem;
+  border-radius: 99px; white-space: nowrap; display: inline-block;
+}}
+@media (max-width: 700px) {{
+  .comparison-table-wrap {{ padding: 0 1rem; }}
+}}
+
 /* ── Responsive ── */
 @media (max-width: 700px) {{
   .card {{ grid-template-columns: 1fr; }}
@@ -1296,7 +1426,7 @@ body {{
 </div>
 
 {map_section}
-
+{comparison_table}
 <main class="main">
 {cards_html}
 </main>
