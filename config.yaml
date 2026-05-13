@@ -23,9 +23,8 @@ fetch:
   # applying filters (beds, price, property type) on redfin.com.
   # Requires SCRAPERAPI_KEY in .env (free tier: 1,000 credits/month)
   scraperapi_search_urls:
-    - "https://www.redfin.com/city/16163/WA/Seattle/filter/min-beds=3,max-price=2250000,property-type=house"
-    - "https://www.redfin.com/city/1778/WA/Bellevue/filter/min-beds=3,max-price=2250000,property-type=house"
-    - "https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000,property-type=house"
+    - "https://www.redfin.com/county/1935/WA/King-County/filter/min-beds=3,max-price=2250000,property-type=house"
+    - "https://www.redfin.com/county/1943/WA/Snohomish-County/filter/min-beds=3,max-price=2250000,property-type=house"
 
 enrich:
   hud_rent_multiplier: 1.0       # Validated against Zillow Rent Zestimate (Apr 2026): HUD FMR
