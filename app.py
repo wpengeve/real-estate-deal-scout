@@ -267,7 +267,8 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db), user=Depends(get
                           market=config.output.market, status="running",
                           criteria={"addresses": addresses})
         asyncio.create_task(_run_multi_property_bg(run_id, addresses, config,
-                                                    user_id=user.id if user else None))
+                                                    user_id=user.id if user else None,
+                                                    session_id=req.session_id))
         return {"text": f"🔍 Resolving {len(addresses)} addresses and comparing...", "run_id": run_id}
 
     if not os.getenv("ANTHROPIC_API_KEY"):
@@ -373,7 +374,7 @@ async def start_run(
     config = session.build_config(_load_base_config())
     if config is None:
         raise HTTPException(status_code=400, detail="Could not build config from criteria.")
-    return _launch_run(config, db, user, criteria=session.extracted)
+    return _launch_run(config, db, user, criteria=session.extracted, session_id=req.session_id)
 
 
 class FormRunRequest(BaseModel):
@@ -389,7 +390,7 @@ async def start_run_form(
 ):
     from tools.chat_intake import _build_config
     config = _build_config(req.criteria, _load_base_config())
-    return _launch_run(config, db, user, criteria=req.criteria)
+    return _launch_run(config, db, user, criteria=req.criteria, session_id=req.session_id)
 
 
 def _launch_run(
@@ -397,6 +398,7 @@ def _launch_run(
     db: Session,
     user,
     criteria: dict,
+    session_id: str | None = None,
 ) -> dict:
     run_id = uuid.uuid4().hex[:8]
     _runs[run_id] = {"status": "running", "progress": "Starting pipeline..."}
@@ -407,7 +409,7 @@ def _launch_run(
         status="running",
         criteria=criteria,
     )
-    asyncio.create_task(_run_pipeline_bg(run_id, config, user_id=user.id if user else None))
+    asyncio.create_task(_run_pipeline_bg(run_id, config, user_id=user.id if user else None, session_id=session_id))
     return {"run_id": run_id}
 
 
@@ -571,6 +573,7 @@ async def _run_multi_property_bg(
     addresses: list[str],
     config: InvestmentConfig,
     user_id: int | None = None,
+    session_id: str | None = None,
 ) -> None:
     try:
         _runs[run_id]["progress"] = f"Resolving {len(addresses)} addresses concurrently..."
@@ -608,6 +611,9 @@ async def _run_multi_property_bg(
 
         _runs[run_id] = {"status": "done", "progress": f"Compared {len(shortlist.deals)} properties"}
 
+        if session_id and session_id in _chat_sessions:
+            _chat_sessions[session_id].set_shortlist(shortlist)
+
         db = get_db()
         try:
             upsert_report_run(db, run_id, user_id=user_id, status="done", deals_found=len(shortlist.deals))
@@ -631,6 +637,7 @@ async def _run_pipeline_bg(
     run_id: str,
     config: InvestmentConfig,
     user_id: int | None = None,
+    session_id: str | None = None,
 ) -> None:
     try:
         _runs[run_id]["progress"] = "Fetching and enriching listings (1–2 min)..."
@@ -644,6 +651,9 @@ async def _run_pipeline_bg(
 
         _runs[run_id] = {"status": "done", "progress": f"Found {len(shortlist.deals)} deals"}
         logger.info("Run %s complete — %d deals", run_id, len(shortlist.deals))
+
+        if session_id and session_id in _chat_sessions:
+            _chat_sessions[session_id].set_shortlist(shortlist)
 
         # Persist to DB
         db = get_db()
