@@ -153,6 +153,17 @@
     .btn-back:hover { background: var(--bg); }
     #report-frame { flex: 1; border: none; width: 100%; }
 
+    /* ── Results card in chat ── */
+    .results-msg-card {
+      background: var(--green-light); border: 1px solid var(--green-border);
+      border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .results-msg-card h3 { font-size: 14px; font-weight: 700; color: var(--green); }
+    .results-msg-card .results-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn-view-results { padding: 8px 16px; background: var(--green); color: #fff; border: none; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background .15s; }
+    .btn-view-results:hover { background: #15803d; }
+    .btn-open-tab { padding: 8px 14px; background: none; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; text-decoration: none; display: inline-block; }
+
     /* ── Progress overlay ── */
     #progress-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: center; justify-content: center; }
     #progress-overlay.active { display: flex; }
@@ -311,7 +322,7 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   <!-- ── Results panel (replaces full-page redirect) ── -->
   <div class="panel" id="panel-results">
     <div class="results-nav">
-      <button class="btn-back" onclick="backToSearch()">← New Search</button>
+      <button class="btn-back" onclick="backToSearch()">← Back to Chat</button>
       <span class="results-nav-title" id="results-label">Results</span>
       <a id="results-open-link" href="#" target="_blank">Open in new tab ↗</a>
     </div>
@@ -739,10 +750,29 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   }
 
   // ── Results panel ─────────────────────────────────────────────────────────
+  let _lastReportUrl = null;
+
   function showResults(reportUrl) {
+    _lastReportUrl = reportUrl;
     document.getElementById('report-frame').src = reportUrl;
     document.getElementById('results-open-link').href = reportUrl;
     document.getElementById('results-label').textContent = 'Deal Scout Results';
+
+    // Post a persistent result card into the chat so the user can get back
+    const wrap = document.createElement('div');
+    wrap.className = 'msg agent';
+    const av = document.createElement('div'); av.className = 'avatar'; av.textContent = '🤖';
+    const b = document.createElement('div'); b.className = 'bubble';
+    b.innerHTML = `<div class="results-msg-card">
+      <h3>✅ Analysis complete — results are ready</h3>
+      <div class="results-card-actions">
+        <button class="btn-view-results" onclick="viewResults()">View Results →</button>
+        <a class="btn-open-tab" href="${reportUrl}" target="_blank">Open in new tab ↗</a>
+      </div>
+    </div>`;
+    wrap.appendChild(av); wrap.appendChild(b);
+    messagesEl.appendChild(wrap);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
 
     // Hide tabs while showing results
     document.getElementById('main-tabs').style.display = 'none';
@@ -752,9 +782,16 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
     document.getElementById('panel-results').classList.add('active');
   }
 
+  function viewResults() {
+    if (!_lastReportUrl) return;
+    document.getElementById('main-tabs').style.display = 'none';
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-results').classList.add('active');
+  }
+
   function backToSearch() {
     document.getElementById('main-tabs').style.display = '';
-    document.getElementById('report-frame').src = '';
+    // Do NOT clear report-frame.src — keep results loaded so user can come back
     // Return to whichever tab triggered the run
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     document.getElementById('panel-' + _lastChatTab).classList.add('active');
