@@ -122,7 +122,7 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
 
         # ── Stage 4: Analyze ──────────────────────────────────────────────────
         progress.update(task, description="[4/5] Analyzing financials...")
-        analyzed = analyze_all(enrich_results, config.financial_assumptions)
+        analyzed = analyze_all(enrich_results, config.financial_assumptions, config.purpose)
         successful = [a for a in analyzed if a.financials.success]
         console.log(
             f"[dim]Financial analysis: {len(successful)}/{len(analyzed)} succeeded[/dim]"
@@ -158,8 +158,8 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
             if dropped:
                 console.log(f"[dim]Primary suite filter: {dropped} without primary bedroom removed[/dim]")
 
-        # Post-analysis cap rate filter (optional — set min_cap_rate in config.yaml)
-        if config.criteria.min_cap_rate is not None:
+        # Post-analysis cap rate filter (rental only — skipped for primary residence)
+        if config.criteria.min_cap_rate is not None and config.purpose != "primary":
             before = len(analyzed)
             analyzed = [
                 a for a in analyzed
@@ -217,6 +217,7 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
     # ── Write output ──────────────────────────────────────────────────────────
     safe_market = market.replace(", ", "_").replace(" ", "_").lower()
     output_path = _OUTPUTS_DIR / f"{run_id}_{safe_market}.json"
+    shortlist.purpose = config.purpose
     output_path.write_text(shortlist.model_dump_json(indent=2))
     report_path = generate_report(shortlist, output_path.with_suffix(".html"), config.financial_assumptions)
     console.print(f"\n[dim]Shortlist saved to {output_path}[/dim]")
@@ -334,7 +335,33 @@ async def _claude_rank_and_narrate(
     c = config.criteria
     a = config.financial_assumptions
 
-    user_prompt = f"""You are an experienced real estate investment analyst reviewing pre-screened properties.
+    if config.purpose == "primary":
+        user_prompt = f"""You are an experienced real estate advisor reviewing properties for a primary residence buyer.
+
+Market: {config.output.market}
+Down payment: {a.down_payment_pct:.0%}
+Loan rate: {a.loan_rate_annual:.1%}
+
+{len(flagged)} properties passed initial screening (max price ${c.max_price:,.0f}, min {c.min_beds} beds).
+
+Properties:
+{json.dumps(listings_data, indent=2)}
+
+Select the top {config.output.max_shortlist} best properties to live in. \
+For each property write exactly 3 short sentences separated by newlines — no more:
+Line 1: Property overview — type, size, location, standout feature (1 sentence).
+Line 2: Affordability — monthly PITI (use monthly_piti field), HOA if any, total monthly housing cost.
+Line 3: Verdict using exactly one of these labels followed by one short reason:
+  "Strong Buy" — excellent location, walkable, good schools, well-priced for the market
+  "Buy" — solid home and location with minor trade-offs
+  "Consider" — good value but notable trade-off (schools, walkability, or condition)
+  "Proceed with Caution" — meaningful concern about livability, price, or long-term value
+  "Pass" — significant drawback that makes it unsuitable as a primary residence
+Keep each sentence under 20 words. No conjunctions chaining clauses. No semicolons. \
+Rank by overall livability quality — location, schools, walkability, and value for the price. \
+HIGH risk must be stated plainly in the verdict line."""
+    else:
+        user_prompt = f"""You are an experienced real estate investment analyst reviewing pre-screened properties.
 
 Market: {config.output.market}
 Target cap rate: {c.target_cap_rate:.1%}
@@ -443,6 +470,7 @@ HIGH risk must be stated plainly in the verdict line."""
         deal.monthly_cashflow = f.financials.monthly_cashflow
         deal.noi_annual = f.financials.noi_annual
         deal.monthly_mortgage = f.financials.monthly_mortgage
+        deal.monthly_piti = f.financials.monthly_piti
         deal.estimated_monthly_rent = f.estimated_monthly_rent
         deal.walk_score = f.walk_score
         deal.flood_zone = f.risks.flood_zone
@@ -467,6 +495,7 @@ HIGH risk must be stated plainly in the verdict line."""
         deal.has_fireplace = f.has_fireplace
         deal.risk_flags = [rf.description for rf in f.risks.flags]
 
+    shortlist.purpose = config.purpose
     return shortlist
 
 
@@ -527,7 +556,7 @@ async def run_single_property(listing_url: str, config: InvestmentConfig) -> Sho
 
         # ── Analyze financials ─────────────────────────────────────────────────
         progress.update(task, description="[2/3] Analyzing financials...")
-        analyzed = analyze_all(enrich_results, config.financial_assumptions)
+        analyzed = analyze_all(enrich_results, config.financial_assumptions, config.purpose)
 
         # ── Flag risks ────────────────────────────────────────────────────────
         progress.update(task, description="[3/3] Flagging risks...")
@@ -550,6 +579,7 @@ async def run_single_property(listing_url: str, config: InvestmentConfig) -> Sho
         shortlist = mock_rank_and_narrate(flagged, config)
 
     shortlist.market = market
+    shortlist.purpose = config.purpose
     return shortlist
 
 
@@ -585,7 +615,7 @@ async def run_multi_property(urls: list[str], config: InvestmentConfig) -> Short
 
     # Enrich → analyze → flag → narrate (same as run_pipeline)
     enrich_results = await enrich_all(listings, config.enrich)
-    analyzed = analyze_all(enrich_results, config.financial_assumptions)
+    analyzed = analyze_all(enrich_results, config.financial_assumptions, config.purpose)
     flagged = flag_all(analyzed, config.criteria)
 
     ranker = config.output.ranker
@@ -604,6 +634,7 @@ async def run_multi_property(urls: list[str], config: InvestmentConfig) -> Short
         shortlist = mock_rank_and_narrate(flagged, config)
 
     shortlist.market = market
+    shortlist.purpose = config.purpose
     return shortlist
 
 

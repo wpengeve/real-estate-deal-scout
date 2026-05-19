@@ -331,79 +331,110 @@ def _render_features(deal: DealNarrative) -> str:
     return f'<div class="features">{items}</div>'
 
 
-def _verdict_reasons(deal: DealNarrative) -> list[str]:
+def _verdict_reasons(deal: DealNarrative, purpose: str = "rental") -> list[str]:
     """Generate 2–4 specific data-driven reasons for the verdict."""
     reasons = []
     verdict = _verdict_label(deal.narrative).lower()
 
-    cap = deal.cap_rate
-    cf = deal.monthly_cashflow
-    coc = deal.coc_return
     risk = deal.risk_level
     hoa = deal.hoa_fee
     dom = deal.days_on_market
     flood = deal.flood_zone
 
-    # Cap rate assessment (always include if available)
-    if cap is not None:
-        cap_pct = f"{cap:.1%}"
-        if cap < 0.02:
-            reasons.append(f"Cap rate of {cap_pct} is well below a typical 5% investment threshold")
-        elif cap < 0.04:
-            reasons.append(f"Cap rate of {cap_pct} falls short of the 5% target — property generates limited income relative to price")
-        elif cap < 0.05:
-            reasons.append(f"Cap rate of {cap_pct} is close to but slightly under the 5% target")
-        elif cap >= 0.06:
-            reasons.append(f"Strong cap rate of {cap_pct} — well above the 5% benchmark")
-        else:
-            reasons.append(f"Cap rate of {cap_pct} meets the investment threshold")
+    if purpose == "primary":
+        # Primary residence: focus on affordability and livability
+        piti = deal.monthly_piti
+        ws = deal.walk_score
 
-    # Cash flow assessment
-    if cf is not None:
-        cf_str = f"${cf:+,.0f}/mo"
-        if cf < -500:
-            reasons.append(f"Deeply negative cash flow ({cf_str}) means out-of-pocket losses every month")
-        elif cf < -200:
-            reasons.append(f"Negative cash flow ({cf_str}) requires monthly top-up from personal funds")
-        elif cf < 0:
-            reasons.append(f"Slightly negative cash flow ({cf_str}) — manageable but needs monitoring")
-        elif cf >= 300:
-            reasons.append(f"Healthy positive cash flow ({cf_str}) provides a solid income buffer")
-        else:
-            reasons.append(f"Near break-even cash flow ({cf_str})")
+        if piti is not None:
+            if piti > 8000:
+                reasons.append(f"High monthly PITI of ${piti:,.0f} — verify this fits your budget")
+            elif piti > 5000:
+                reasons.append(f"Monthly PITI of ${piti:,.0f} — substantial housing cost")
+            else:
+                reasons.append(f"Monthly PITI of ${piti:,.0f}")
 
-    # Risk flags
-    if risk == "HIGH":
-        reasons.append("High risk flag — check flood zone, zoning restrictions, or other structural concerns")
-    elif risk == "MEDIUM" and "pass" in verdict:
-        reasons.append("Medium risk adds uncertainty on top of weak financials")
+        if ws is not None:
+            if ws >= 90:
+                reasons.append(f"Walk Score {ws} — Walker's Paradise, minimal car dependence")
+            elif ws >= 70:
+                reasons.append(f"Walk Score {ws} — Very Walkable for daily errands")
+            elif ws >= 50:
+                reasons.append(f"Walk Score {ws} — Some walkable amenities nearby")
+            else:
+                reasons.append(f"Walk Score {ws} — Car-dependent area; verify commute")
 
-    # HOA drag
-    if hoa and hoa > 400:
-        reasons.append(f"High HOA fee (${hoa:,.0f}/mo) significantly reduces net income")
-    elif hoa and hoa > 200 and cap is not None and cap < 0.04:
-        reasons.append(f"HOA fee (${hoa:,.0f}/mo) compounds the weak cap rate")
+        if hoa and hoa > 0:
+            reasons.append(f"HOA fee ${hoa:,.0f}/mo adds to monthly housing cost")
 
-    # Flood zone
-    if flood and flood not in ("X", "X500", ""):
-        reasons.append(f"Flood zone {flood} may require expensive flood insurance")
+        if risk == "HIGH":
+            reasons.append("High risk flag — check flood zone, zoning, or structural concerns")
 
-    # Days on market signal
-    if dom is not None and dom > 60 and "pass" not in verdict:
-        reasons.append(f"{dom} days on market suggests limited buyer interest — may signal a pricing issue")
-    elif dom is not None and dom > 90:
-        reasons.append(f"Over {dom} days on market — sellers may be motivated to negotiate")
+        if flood and flood not in ("X", "X500", ""):
+            reasons.append(f"Flood zone {flood} — flood insurance likely required")
+
+        if dom is not None and dom > 90:
+            reasons.append(f"{dom} days on market — sellers may be motivated to negotiate on price")
+    else:
+        cap = deal.cap_rate
+        cf = deal.monthly_cashflow
+
+        # Cap rate assessment
+        if cap is not None:
+            cap_pct = f"{cap:.1%}"
+            if cap < 0.02:
+                reasons.append(f"Cap rate of {cap_pct} is well below a typical 5% investment threshold")
+            elif cap < 0.04:
+                reasons.append(f"Cap rate of {cap_pct} falls short of the 5% target — limited income relative to price")
+            elif cap < 0.05:
+                reasons.append(f"Cap rate of {cap_pct} is close to but slightly under the 5% target")
+            elif cap >= 0.06:
+                reasons.append(f"Strong cap rate of {cap_pct} — well above the 5% benchmark")
+            else:
+                reasons.append(f"Cap rate of {cap_pct} meets the investment threshold")
+
+        # Cash flow assessment
+        if cf is not None:
+            cf_str = f"${cf:+,.0f}/mo"
+            if cf < -500:
+                reasons.append(f"Deeply negative cash flow ({cf_str}) means out-of-pocket losses every month")
+            elif cf < -200:
+                reasons.append(f"Negative cash flow ({cf_str}) requires monthly top-up from personal funds")
+            elif cf < 0:
+                reasons.append(f"Slightly negative cash flow ({cf_str}) — manageable but needs monitoring")
+            elif cf >= 300:
+                reasons.append(f"Healthy positive cash flow ({cf_str}) provides a solid income buffer")
+            else:
+                reasons.append(f"Near break-even cash flow ({cf_str})")
+
+        if risk == "HIGH":
+            reasons.append("High risk flag — check flood zone, zoning restrictions, or other structural concerns")
+        elif risk == "MEDIUM" and "pass" in verdict:
+            reasons.append("Medium risk adds uncertainty on top of weak financials")
+
+        if hoa and hoa > 400:
+            reasons.append(f"High HOA fee (${hoa:,.0f}/mo) significantly reduces net income")
+        elif hoa and hoa > 200 and deal.cap_rate is not None and deal.cap_rate < 0.04:
+            reasons.append(f"HOA fee (${hoa:,.0f}/mo) compounds the weak cap rate")
+
+        if flood and flood not in ("X", "X500", ""):
+            reasons.append(f"Flood zone {flood} may require expensive flood insurance")
+
+        if dom is not None and dom > 60 and "pass" not in verdict:
+            reasons.append(f"{dom} days on market suggests limited buyer interest — may signal a pricing issue")
+        elif dom is not None and dom > 90:
+            reasons.append(f"Over {dom} days on market — sellers may be motivated to negotiate")
 
     # Add actual risk flags from pipeline
     for flag_desc in (deal.risk_flags or []):
-        if flag_desc not in reasons:  # avoid duplicating flood zone already mentioned
+        if flag_desc not in reasons:
             reasons.append(flag_desc)
 
     return reasons[:6]  # cap at 6 bullets
 
 
-def _render_verdict_reasons(deal: DealNarrative) -> str:
-    reasons = _verdict_reasons(deal)
+def _render_verdict_reasons(deal: DealNarrative, purpose: str = "rental") -> str:
+    reasons = _verdict_reasons(deal, purpose)
     if not reasons:
         return ""
     items = "".join(f"<li>{r}</li>" for r in reasons)
@@ -611,7 +642,7 @@ def _render_price_targets(deal: DealNarrative) -> str:
 </div>"""
 
 
-def _render_deal(deal: DealNarrative, idx: int) -> str:
+def _render_deal(deal: DealNarrative, idx: int, purpose: str = "rental") -> str:
     risk = _RISK_COLOR.get(deal.risk_level, _RISK_COLOR["LOW"])
     cf_class = _cashflow_class(deal.monthly_cashflow)
 
@@ -639,9 +670,45 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
     else:
         verdict_html = ""
 
-    # data attributes for JS recalculation
+    # data attributes for JS recalculation (rental only)
     noi_attr = f' data-noi-annual="{deal.noi_annual}"' if deal.noi_annual is not None else ""
     price_attr = f' data-price="{deal.price}"' if deal.price else ""
+
+    if purpose == "primary":
+        piti_class = ""  # no positive/negative coloring for PITI
+        financial_metrics = f"""
+      <div class="metric">
+        <div class="metric-label">Price</div>
+        <div class="metric-value">{_fmt_currency(deal.price)}</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Monthly PITI</div>
+        <div class="metric-value">{_fmt_currency(deal.monthly_piti)}/mo</div>
+      </div>
+      {f'<div class="metric"><div class="metric-label">HOA</div><div class="metric-value negative">{_fmt_currency(deal.hoa_fee)}/mo</div></div>' if deal.hoa_fee else ""}
+      {f'<div class="metric"><div class="metric-label">Home Type</div><div class="metric-value">{deal.home_type}</div></div>' if deal.home_type else ""}"""
+    else:
+        financial_metrics = f"""
+      <div class="metric">
+        <div class="metric-label">Price</div>
+        <div class="metric-value">{_fmt_currency(deal.price)}</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Cap Rate (net)</div>
+        <div class="metric-value">{_fmt_pct(deal.cap_rate)}</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Cash-on-Cash</div>
+        <div class="metric-value js-coc {_cashflow_class(deal.coc_return)}">{_fmt_pct(deal.coc_return)}</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Monthly Cash Flow</div>
+        <div class="metric-value js-cashflow {cf_class}">{_fmt_cashflow(deal.monthly_cashflow)}</div>
+      </div>
+      {f'<div class="metric"><div class="metric-label">HOA</div><div class="metric-value negative">{_fmt_currency(deal.hoa_fee)}/mo</div></div>' if deal.hoa_fee else ""}
+      {f'<div class="metric"><div class="metric-label">Home Type</div><div class="metric-value">{deal.home_type}</div></div>' if deal.home_type else ""}"""
+
+    price_targets_html = "" if purpose == "primary" else _render_price_targets(deal)
 
     return f"""
 <div class="card{'  card--first' if deal.rank == 1 else ''}" data-rank="{deal.rank}"{price_attr}{noi_attr}>
@@ -664,22 +731,7 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
     </div>
 
     <div class="metrics-grid">
-      <div class="metric">
-        <div class="metric-label">Price</div>
-        <div class="metric-value">{_fmt_currency(deal.price)}</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Cap Rate (net)</div>
-        <div class="metric-value">{_fmt_pct(deal.cap_rate)}</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Cash-on-Cash</div>
-        <div class="metric-value js-coc {_cashflow_class(deal.coc_return)}">{_fmt_pct(deal.coc_return)}</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Monthly Cash Flow</div>
-        <div class="metric-value js-cashflow {cf_class}">{_fmt_cashflow(deal.monthly_cashflow)}</div>
-      </div>
+      {financial_metrics}
       {_render_assessed(deal)}
       {_render_walk_score_metric(deal)}
       {_render_transit_scores(deal)}
@@ -687,16 +739,14 @@ def _render_deal(deal: DealNarrative, idx: int) -> str:
 
       {f'<div class="metric"><div class="metric-label">Flood Zone</div><div class="metric-value">{deal.flood_zone}</div></div>' if deal.flood_zone else ""}
       {f'<div class="metric"><div class="metric-label">Zoning</div><div class="metric-value zoning">{deal.zoning}</div></div>' if deal.zoning else ""}
-      {f'<div class="metric"><div class="metric-label">HOA</div><div class="metric-value negative">{_fmt_currency(deal.hoa_fee)}/mo</div></div>' if deal.hoa_fee else ""}
-      {f'<div class="metric"><div class="metric-label">Home Type</div><div class="metric-value">{deal.home_type}</div></div>' if deal.home_type else ""}
     </div>
 
     {_render_features(deal)}
 
     <div class="narrative">{narrative_html}</div>
     {verdict_html}
-    {_render_verdict_reasons(deal)}
-    {_render_price_targets(deal)}
+    {_render_verdict_reasons(deal, purpose)}
+    {price_targets_html}
 
     {_render_schools(deal)}
     {_render_zoning_potential(deal)}
@@ -784,6 +834,7 @@ def _render_comparison_table(shortlist: Shortlist) -> str:
     if len(shortlist.deals) < 2:
         return ""
 
+    purpose = shortlist.purpose
     rows = []
     for d in shortlist.deals:
         verdict = _verdict_label(d.narrative)
@@ -797,14 +848,6 @@ def _render_comparison_table(shortlist: Shortlist) -> str:
             bed_bath = f"{d.beds}bd"
         else:
             bed_bath = "—"
-        cap_str = f"{d.cap_rate * 100:.2f}%" if d.cap_rate is not None else "—"
-        if d.monthly_cashflow is not None:
-            sign = "+" if d.monthly_cashflow >= 0 else ""
-            cf_cls = "positive" if d.monthly_cashflow >= 0 else "negative"
-            cf_str = f"{sign}${abs(round(d.monthly_cashflow)):,}/mo"
-        else:
-            cf_cls = ""
-            cf_str = "—"
         ws_str = str(d.walk_score) if d.walk_score is not None else "—"
         street = d.address.split(",")[0]
         risk_label = _RISK_LABEL.get(d.risk_level, d.risk_level)
@@ -816,15 +859,32 @@ def _render_comparison_table(shortlist: Shortlist) -> str:
             f"background:{vstyle['bg']};color:{vstyle['text']};"
             f"border:1px solid {vstyle['border']}"
         )
+
+        if purpose == "primary":
+            piti_str = f"${d.monthly_piti:,.0f}/mo" if d.monthly_piti is not None else "—"
+            fin_cells = f'      <td class="ct-piti">{piti_str}</td>\n'
+        else:
+            cap_str = f"{d.cap_rate * 100:.2f}%" if d.cap_rate is not None else "—"
+            if d.monthly_cashflow is not None:
+                sign = "+" if d.monthly_cashflow >= 0 else ""
+                cf_cls = "positive" if d.monthly_cashflow >= 0 else "negative"
+                cf_str = f"{sign}${abs(round(d.monthly_cashflow)):,}/mo"
+            else:
+                cf_cls = ""
+                cf_str = "—"
+            fin_cells = (
+                f'      <td class="ct-cap">{cap_str}</td>\n'
+                f'      <td class="ct-cf {cf_cls}">{cf_str}</td>\n'
+            )
+
         rows.append(
             f'    <tr data-rank="{d.rank}">\n'
             f'      <td class="ct-rank">{d.rank}</td>\n'
             f'      <td class="ct-address">{street}</td>\n'
             f'      <td class="ct-price">{price_str}</td>\n'
             f'      <td class="ct-bedbath">{bed_bath}</td>\n'
-            f'      <td class="ct-cap">{cap_str}</td>\n'
-            f'      <td class="ct-cf {cf_cls}">{cf_str}</td>\n'
-            f'      <td class="ct-ws">{ws_str}</td>\n'
+            + fin_cells
+            + f'      <td class="ct-ws">{ws_str}</td>\n'
             f'      <td class="ct-risk"><span class="risk-badge" style="{risk_style}">'
             f'{risk_label}</span></td>\n'
             f'      <td class="ct-verdict"><span class="verdict-chip" style="{verdict_style}">'
@@ -832,12 +892,19 @@ def _render_comparison_table(shortlist: Shortlist) -> str:
             f'    </tr>'
         )
 
+    if purpose == "primary":
+        fin_headers = "        <th>Monthly PITI</th>\n"
+        ct_note = "&nbsp;· PITI = principal, interest, taxes, insurance"
+    else:
+        fin_headers = "        <th>Cap Rate</th>\n        <th>Cash Flow</th>\n"
+        ct_note = "&nbsp;· cap rate is net (excludes financing costs)"
+
     rows_html = "\n".join(rows)
     return (
         '<div class="comparison-table-wrap">\n'
         '  <div class="ct-header">'
         '<span class="ct-title">Side-by-Side Comparison</span>'
-        '<span class="ct-note">&nbsp;· cap rate is net (excludes financing costs)</span>'
+        f'<span class="ct-note">{ct_note}</span>'
         "</div>\n"
         '  <div class="ct-scroll">\n'
         '    <table class="comparison-table">\n'
@@ -846,9 +913,8 @@ def _render_comparison_table(shortlist: Shortlist) -> str:
         "        <th>Address</th>\n"
         "        <th>Price</th>\n"
         "        <th>Bed / Bath</th>\n"
-        "        <th>Cap Rate</th>\n"
-        "        <th>Cash Flow</th>\n"
-        "        <th>Walk</th>\n"
+        + fin_headers
+        + "        <th>Walk</th>\n"
         "        <th>Risk</th>\n"
         "        <th>Verdict</th>\n"
         "      </tr></thead>\n"
@@ -862,7 +928,8 @@ def _render_comparison_table(shortlist: Shortlist) -> str:
 
 
 def _render(shortlist: Shortlist, assumptions: FinancialAssumptions | None = None) -> str:
-    cards_html = "\n".join(_render_deal(d, i) for i, d in enumerate(shortlist.deals))
+    purpose = shortlist.purpose
+    cards_html = "\n".join(_render_deal(d, i, purpose) for i, d in enumerate(shortlist.deals))
     map_section = _render_map(shortlist)
     comparison_table = _render_comparison_table(shortlist)
     has_map = bool(map_section)
@@ -873,12 +940,56 @@ def _render(shortlist: Shortlist, assumptions: FinancialAssumptions | None = Non
     default_rate = (assumptions.loan_rate_annual if assumptions else 0.07) * 100
     default_term = assumptions.loan_term_years if assumptions else 30
 
+    page_title = "Home Scout" if purpose == "primary" else "Deal Scout"
+    subtitle = "Primary residence search" if purpose == "primary" else "Click any photo to open on Redfin"
+
+    if purpose == "primary":
+        sliders_html = ""
+    else:
+        show_filter = ""
+        if count > 5:
+            sel5 = "selected" if count <= 10 else ""
+            sel10 = "selected" if count > 10 else ""
+            show_filter = (
+                f'  <label>\n    Show top:\n'
+                f'    <select id="selectShow" onchange="applyShowFilter()">\n'
+                f'      <option value="5" {sel5}>5</option>\n'
+                f'      <option value="10" {sel10}>10</option>\n'
+                f'      <option value="0">All</option>\n'
+                f'    </select>\n  </label>\n'
+            )
+        sel15 = "selected" if default_term == 15 else ""
+        sel20 = "selected" if default_term == 20 else ""
+        sel30 = "selected" if default_term == 30 else ""
+        sliders_html = (
+            '<div class="sliders-bar">\n'
+            '  <label>\n    Down payment:\n'
+            f'    <input type="range" id="sliderDown" min="5" max="50" step="1" value="{default_down}"\n'
+            f'           oninput="document.getElementById(\'valDown\').textContent=this.value+\'%\';recalcAll()">\n'
+            f'    <span class="slider-val" id="valDown">{default_down}%</span>\n'
+            '  </label>\n'
+            '  <label>\n    Loan rate:\n'
+            f'    <input type="range" id="sliderRate" min="3" max="12" step="0.25" value="{default_rate:.2f}"\n'
+            f'           oninput="document.getElementById(\'valRate\').textContent=parseFloat(this.value).toFixed(2)+\'%\';recalcAll()">\n'
+            f'    <span class="slider-val" id="valRate">{default_rate:.2f}%</span>\n'
+            '  </label>\n'
+            '  <label>\n    Term:\n'
+            '    <select id="selectTerm" onchange="recalcAll()">\n'
+            f'      <option value="15" {sel15}>15 yr</option>\n'
+            f'      <option value="20" {sel20}>20 yr</option>\n'
+            f'      <option value="30" {sel30}>30 yr</option>\n'
+            '    </select>\n  </label>\n'
+            + show_filter
+            + '  <span class="recalc-note">Cash flow &amp; CoC update live · net cap rate excludes financing costs</span>\n'
+            '</div>\n'
+        )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Deal Scout — {shortlist.market}</title>
+<title>{page_title} — {shortlist.market}</title>
 
 <style>
 /* ── Reset & base ── */
@@ -1358,6 +1469,7 @@ body {{
 .ct-price {{ font-weight: 600; white-space: nowrap; }}
 .ct-bedbath {{ color: #64748b; white-space: nowrap; }}
 .ct-cap {{ font-weight: 700; color: #0369a1; white-space: nowrap; }}
+.ct-piti {{ font-weight: 700; color: #475569; white-space: nowrap; }}
 .ct-cf {{ font-weight: 700; white-space: nowrap; }}
 .ct-cf.positive {{ color: #16a34a; }}
 .ct-cf.negative {{ color: #dc2626; }}
@@ -1388,42 +1500,12 @@ body {{
 <body>
 
 <div class="page-header">
-  <h1>Deal Scout &nbsp;·&nbsp; {shortlist.market}</h1>
-  <p class="subtitle">Click any photo to open on Redfin</p>
+  <h1>{page_title} &nbsp;·&nbsp; {shortlist.market}</h1>
+  <p class="subtitle">{subtitle}</p>
   <div class="summary-bar">{shortlist.run_summary}</div>
 </div>
 
-<div class="sliders-bar">
-  <label>
-    Down payment:
-    <input type="range" id="sliderDown" min="5" max="50" step="1" value="{default_down}"
-           oninput="document.getElementById('valDown').textContent=this.value+'%';recalcAll()">
-    <span class="slider-val" id="valDown">{default_down}%</span>
-  </label>
-  <label>
-    Loan rate:
-    <input type="range" id="sliderRate" min="3" max="12" step="0.25" value="{default_rate:.2f}"
-           oninput="document.getElementById('valRate').textContent=parseFloat(this.value).toFixed(2)+'%';recalcAll()">
-    <span class="slider-val" id="valRate">{default_rate:.2f}%</span>
-  </label>
-  <label>
-    Term:
-    <select id="selectTerm" onchange="recalcAll()">
-      <option value="15" {'selected' if default_term == 15 else ''}>15 yr</option>
-      <option value="20" {'selected' if default_term == 20 else ''}>20 yr</option>
-      <option value="30" {'selected' if default_term == 30 else ''}>30 yr</option>
-    </select>
-  </label>
-  {f'''<label>
-    Show top:
-    <select id="selectShow" onchange="applyShowFilter()">
-      <option value="5" {'selected' if count <= 10 else ''}>5</option>
-      <option value="10" {'selected' if count > 10 else ''}>10</option>
-      <option value="0">All</option>
-    </select>
-  </label>''' if count > 5 else ''}
-  <span class="recalc-note">Cash flow &amp; CoC update live · net cap rate excludes financing costs</span>
-</div>
+{sliders_html}
 
 {map_section}
 {comparison_table}

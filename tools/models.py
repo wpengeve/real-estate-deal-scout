@@ -77,6 +77,7 @@ class InvestmentConfig(BaseModel):
     criteria: ScreeningCriteria
     financial_assumptions: FinancialAssumptions
     output: OutputConfig
+    purpose: str = "rental"   # "rental" | "primary"
 
 
 # ─── Pipeline data ────────────────────────────────────────────────────────────
@@ -145,6 +146,7 @@ class FinancialResult(BaseModel):
     monthly_cashflow: float | None = None
     noi_annual: float | None = None
     monthly_mortgage: float | None = None
+    monthly_piti: float | None = None   # mortgage + taxes + insurance (primary residence key metric)
     total_cash_invested: float | None = None
 
 
@@ -247,6 +249,7 @@ class DealNarrative(BaseModel):
     monthly_cashflow: float | None = None
     noi_annual: float | None = None            # pre-financing NOI — used for JS recalculation
     monthly_mortgage: float | None = None      # baseline mortgage — used for JS recalculation
+    monthly_piti: float | None = None          # mortgage + taxes + insurance (primary residence)
     estimated_monthly_rent: float | None = None  # used for JS recalculation
     walk_score: int | None = None
     bike_score: int | None = None
@@ -281,3 +284,4 @@ class Shortlist(BaseModel):
     market: str
     deals: list[DealNarrative]
     run_summary: str = ""
+    purpose: str = "rental"   # "rental" | "primary"

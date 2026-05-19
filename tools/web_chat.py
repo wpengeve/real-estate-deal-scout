@@ -33,23 +33,28 @@ collect new criteria and call set_investment_criteria as usual.
 
 def _shortlist_summary(shortlist: Shortlist) -> str:
     """Compact text summary of the shortlist for use as system prompt context."""
-    lines = [f"Market: {shortlist.market} — {len(shortlist.deals)} deals"]
+    purpose = shortlist.purpose
+    lines = [f"Market: {shortlist.market} — {len(shortlist.deals)} properties ({purpose})"]
     for d in shortlist.deals:
         price = f"${d.price:,.0f}" if d.price else "—"
         beds = f"{d.beds}bd" if d.beds else "—"
         baths = f"/{d.baths:g}ba" if d.baths else ""
-        cap = f"{d.cap_rate*100:.2f}%" if d.cap_rate is not None else "—"
-        cf_val = d.monthly_cashflow
-        if cf_val is not None:
-            cf = f"{'+'if cf_val>=0 else ''}${round(cf_val):,}/mo"
-        else:
-            cf = "—"
         ws = str(d.walk_score) if d.walk_score is not None else "—"
         verdict = d.narrative.split("\n")[0][:80] if d.narrative else "—"
-        lines.append(
-            f"#{d.rank} {d.address} — {price} | {beds}{baths} | "
-            f"Cap: {cap} | CF: {cf} | Walk: {ws} | {d.risk_level} risk — {verdict}"
-        )
+        if purpose == "primary":
+            piti = f"${d.monthly_piti:,.0f}/mo" if d.monthly_piti is not None else "—"
+            lines.append(
+                f"#{d.rank} {d.address} — {price} | {beds}{baths} | "
+                f"PITI: {piti} | Walk: {ws} | {d.risk_level} risk — {verdict}"
+            )
+        else:
+            cap = f"{d.cap_rate*100:.2f}%" if d.cap_rate is not None else "—"
+            cf_val = d.monthly_cashflow
+            cf = f"{'+'if cf_val>=0 else ''}${round(cf_val):,}/mo" if cf_val is not None else "—"
+            lines.append(
+                f"#{d.rank} {d.address} — {price} | {beds}{baths} | "
+                f"Cap: {cap} | CF: {cf} | Walk: {ws} | {d.risk_level} risk — {verdict}"
+            )
     return "\n".join(lines)
 
 

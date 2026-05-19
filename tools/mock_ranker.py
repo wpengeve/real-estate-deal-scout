@@ -14,12 +14,8 @@ console = Console()
 _RISK_PENALTY = {RiskLevel.HIGH: -0.05, RiskLevel.MEDIUM: -0.02, RiskLevel.LOW: 0.0}
 
 
-def _score(f: FlaggedListing) -> float:
-    """
-    Simple ranking heuristic so the mock produces a sensible order.
-    Higher is better. Weights cap rate most heavily, adds CoC, subtracts
-    a risk penalty, and deprioritises listings with no financial data.
-    """
+def _score_rental(f: FlaggedListing) -> float:
+    """Rental: weight cap rate + CoC, subtract risk penalty."""
     if not f.financials.success:
         return -999.0
     cap = f.financials.cap_rate or 0.0
@@ -28,7 +24,19 @@ def _score(f: FlaggedListing) -> float:
     return cap * 0.6 + coc * 0.4 + penalty
 
 
-def _verdict(f: FlaggedListing, config: InvestmentConfig) -> str:
+def _score_primary(f: FlaggedListing, max_price: float) -> float:
+    """Primary: prefer lower PITI and better walkability, penalise risk."""
+    if not f.financials.success:
+        return -999.0
+    # Normalise PITI: lower is better (invert and scale 0–1)
+    piti = f.financials.monthly_piti or 0.0
+    piti_score = 1.0 - min(piti / 10_000, 1.0)
+    walk = (f.walk_score or 0) / 100.0
+    penalty = _RISK_PENALTY.get(f.risks.overall_risk, 0.0)
+    return piti_score * 0.5 + walk * 0.5 + penalty
+
+
+def _verdict_rental(f: FlaggedListing, config: InvestmentConfig) -> str:
     fin = f.financials
     target = config.criteria.target_cap_rate
     cap = fin.cap_rate or 0.0
@@ -47,6 +55,23 @@ def _verdict(f: FlaggedListing, config: InvestmentConfig) -> str:
     return "Pass — deeply negative returns with no clear path to profitability."
 
 
+def _verdict_primary(f: FlaggedListing) -> str:
+    ws = f.walk_score or 0
+    risk = f.risks.overall_risk
+
+    if not f.financials.success:
+        return "Pass — no financial data available."
+    if risk == RiskLevel.HIGH:
+        return "Proceed with Caution — high risk flag; review before purchasing."
+    if ws >= 70:
+        return "Strong Buy — excellent walkability and solid location."
+    if ws >= 50:
+        return "Buy — good walkability with solid neighborhood fundamentals."
+    if risk == RiskLevel.MEDIUM:
+        return "Consider — car-dependent area with some risk factors to review."
+    return "Consider — car-dependent area; verify commute and lifestyle fit."
+
+
 def _narrative(rank: int, f: FlaggedListing, config: InvestmentConfig) -> str:
     fin = f.financials
     risk = f.risks
@@ -54,24 +79,33 @@ def _narrative(rank: int, f: FlaggedListing, config: InvestmentConfig) -> str:
     if not fin.success:
         return (
             f"Financial analysis unavailable (reason: {fin.failure_reason}).\n"
-            f"Insufficient data to assess investment merit.\n"
+            f"Insufficient data to assess merit.\n"
             "Pass — no financial data available."
         )
 
-    cap_str = f"{fin.cap_rate:.1%}" if fin.cap_rate is not None else "N/A"
-    cf_str = f"${fin.monthly_cashflow:+,.0f}/mo" if fin.monthly_cashflow is not None else "N/A"
-    rent_str = (
-        f"${f.estimated_monthly_rent:,.0f}/mo"
-        if f.estimated_monthly_rent is not None
-        else "unknown rent"
-    )
-
     line1 = f"{f.listing.home_type or 'Property'} at {f.listing.address.split(',')[0]}."
-    line2 = f"Cap rate {cap_str}, cash flow {cf_str} on {rent_str} estimated rent."
-    if risk.overall_risk == RiskLevel.HIGH:
-        flag_descs = "; ".join(rf.description for rf in risk.flags[:2])
-        line2 += f" HIGH RISK: {flag_descs}."
-    line3 = _verdict(f, config)
+
+    if config.purpose == "primary":
+        piti_str = f"${fin.monthly_piti:,.0f}/mo" if fin.monthly_piti else "—"
+        hoa_note = f" + ${f.listing.hoa_fee:,.0f}/mo HOA" if f.listing.hoa_fee else ""
+        line2 = f"Monthly PITI {piti_str}{hoa_note}."
+        if risk.overall_risk == RiskLevel.HIGH:
+            flag_descs = "; ".join(rf.description for rf in risk.flags[:2])
+            line2 += f" HIGH RISK: {flag_descs}."
+        line3 = _verdict_primary(f)
+    else:
+        cap_str = f"{fin.cap_rate:.1%}" if fin.cap_rate is not None else "N/A"
+        cf_str = f"${fin.monthly_cashflow:+,.0f}/mo" if fin.monthly_cashflow is not None else "N/A"
+        rent_str = (
+            f"${f.estimated_monthly_rent:,.0f}/mo"
+            if f.estimated_monthly_rent is not None
+            else "unknown rent"
+        )
+        line2 = f"Cap rate {cap_str}, cash flow {cf_str} on {rent_str} estimated rent."
+        if risk.overall_risk == RiskLevel.HIGH:
+            flag_descs = "; ".join(rf.description for rf in risk.flags[:2])
+            line2 += f" HIGH RISK: {flag_descs}."
+        line3 = _verdict_rental(f, config)
 
     return f"{line1}\n{line2}\n{line3}"
 
@@ -91,7 +125,11 @@ def mock_rank_and_narrate(
         "  (set [bold]use_mock_ranker: false[/bold] in config.yaml to use Claude)\n"
     )
 
-    ranked = sorted(flagged, key=_score, reverse=True)[: config.output.max_shortlist]
+    if config.purpose == "primary":
+        max_price = config.criteria.max_price
+        ranked = sorted(flagged, key=lambda f: _score_primary(f, max_price), reverse=True)[: config.output.max_shortlist]
+    else:
+        ranked = sorted(flagged, key=_score_rental, reverse=True)[: config.output.max_shortlist]
 
     deals = []
     for rank, f in enumerate(ranked, start=1):
@@ -113,6 +151,7 @@ def mock_rank_and_narrate(
                 monthly_cashflow=f.financials.monthly_cashflow,
                 noi_annual=f.financials.noi_annual,
                 monthly_mortgage=f.financials.monthly_mortgage,
+                monthly_piti=f.financials.monthly_piti,
                 estimated_monthly_rent=f.estimated_monthly_rent,
                 walk_score=f.walk_score,
                 bike_score=f.bike_score,
@@ -151,4 +190,5 @@ def mock_rank_and_narrate(
             f"{n_shown} of {n_total} screened listings ranked "
             f"(mock mode — heuristic scoring, no Claude call)."
         ),
+        purpose=config.purpose,
     )

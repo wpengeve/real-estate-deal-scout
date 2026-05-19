@@ -26,13 +26,21 @@ _MODEL = "claude-sonnet-4-6"
 _TOOL_DEF: dict = {
     "name": "set_investment_criteria",
     "description": (
-        "Record the user's investment search criteria. Call this once you have "
-        "enough information to fill in max_price, min_beds, at least one city, "
+        "Record the user's property search criteria. Call this once you have "
+        "enough information to fill in purpose, max_price, min_beds, at least one city, "
         "and down_payment_pct. Re-call if the user requests changes."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
+            "purpose": {
+                "type": "string",
+                "enum": ["rental", "primary"],
+                "description": (
+                    "Whether the user is buying to rent out as an investment ('rental') "
+                    "or to live in as their primary residence ('primary')."
+                ),
+            },
             "max_price": {
                 "type": "number",
                 "description": "Maximum purchase price in USD (e.g. 1500000 for $1.5M)",
@@ -137,27 +145,30 @@ _TOOL_DEF: dict = {
                 "description": "Number of top deals to show. Default: 15.",
             },
         },
-        "required": ["max_price", "min_beds", "allowed_cities", "market_name", "down_payment_pct"],
+        "required": ["purpose", "max_price", "min_beds", "allowed_cities", "market_name", "down_payment_pct"],
     },
 }
 
 _SYSTEM_PROMPT = """\
-You are a real estate investment advisor helping users set up their property search criteria.
+You are a real estate advisor helping users find their ideal property.
 
 Workflow:
-1. Ask the user focused questions to collect all required fields. Ask ONE question at a time.
-   Required: max_price, min_beds, target city/market, down_payment_pct.
-2. Once you have all required fields, call set_investment_criteria.
-3. After calling the tool, confirm by saying something like:
-   "Got it — here's what I'll search for: [2-3 key criteria]. Click **Find Deals** to start, \
+1. Your VERY FIRST message must ask: \
+"Are you looking for an investment property to rent out, or a primary residence to live in?"
+2. Collect remaining required fields one question at a time. \
+Required: purpose, max_price, min_beds, target city/market, down_payment_pct.
+3. Once you have all required fields, call set_investment_criteria.
+4. After calling the tool, confirm by saying: \
+"Got it — here's what I'll search for: [2-3 key criteria]. Click **Find Deals** to start, \
 or tell me if anything needs changing."
 
 Rules:
-- Do NOT call the tool until you have all required fields from the user.
+- Ask about purpose FIRST — rental investment or primary residence. This shapes everything else.
+- For rental: you may ask about cap rate target (default 5%). For primary: skip cap rate questions.
 - Do NOT ask about optional fields (loan rate, HOA, property type) unless the user brings them up.
-- Use sensible defaults for optional fields: loan rate 5.25%, no HOA restriction, any type.
+- Use sensible defaults: loan rate 5.25%, no HOA restriction, any property type.
 - For a metro area, include the major city plus suburbs in allowed_cities.
-- Be concise — investors are busy.
+- Be concise.
 - If the user's message looks like a property address (starts with a house number, \
 contains a street name) OR is a Redfin URL, do NOT call set_investment_criteria. \
 Reply only: "Got it — I'll look that up for you automatically." The UI will handle it.\
@@ -316,6 +327,7 @@ def _build_config(extracted: dict, base: InvestmentConfig) -> InvestmentConfig:
     return InvestmentConfig(
         fetch=fetch,
         enrich=base.enrich,
+        purpose=extracted.get("purpose", "rental"),
         criteria=ScreeningCriteria(
             max_price=extracted["max_price"],
             min_price=extracted.get("min_price"),
