@@ -55,7 +55,7 @@ def ollama_rank_and_narrate(
                 "messages": [{"role": "user", "content": prompt}],
                 "format": "json",
                 "stream": False,
-                "options": {"temperature": 0.2},
+                "options": {"temperature": 0},
             },
             timeout=_OLLAMA_TIMEOUT,
         )

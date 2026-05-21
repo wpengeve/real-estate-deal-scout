@@ -39,9 +39,16 @@ _OUTPUTS_DIR = Path("outputs")
 _CLAUDE_MODEL = "claude-sonnet-4-6"
 
 
-async def run(market: str, config: InvestmentConfig) -> Shortlist:
+async def run(
+    market: str,
+    config: InvestmentConfig,
+    progress_cb=None,
+) -> Shortlist:
     """
     Execute the full pipeline for a given market.
+
+    progress_cb: optional callable(str) — called at each stage with a status message
+                 in the format "[N/6] Stage label..." for web UI progress display.
 
     Raises:
         FileNotFoundError: fixtures file is missing
@@ -61,7 +68,8 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
         task = progress.add_task("Starting...", total=None)
 
         # ── Stage 1: Fetch ────────────────────────────────────────────────────
-        progress.update(task, description="[1/5] Fetching listings...")
+        progress.update(task, description="[1/6] Fetching listings...")
+        if progress_cb: progress_cb("[1/6] Fetching listings from Redfin...")
 
         # Auto-resolve Redfin search URLs when none are configured but we have
         # a city list. This lets users search any market without pasting URLs.
@@ -94,7 +102,8 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
         console.log(f"[dim]Fetched {len(raw)} listings[/dim]")
 
         # ── Stage 2: Screen ───────────────────────────────────────────────────
-        progress.update(task, description="[2/5] Screening...")
+        progress.update(task, description="[2/6] Screening...")
+        if progress_cb: progress_cb(f"[2/6] Screening {len(raw)} listings against your criteria...")
         screened, filtered_out = screen_all(raw, config.criteria)
         run_log["screened_out"] = filtered_out
         run_log["listings_passed_screening"] = len(screened)
@@ -112,8 +121,23 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
             return Shortlist(market=market, deals=[], run_summary="No listings matched criteria.")
 
         # ── Stage 3: Enrich ───────────────────────────────────────────────────
-        progress.update(task, description=f"[3/5] Enriching {len(screened)} listings...")
-        enrich_results = await enrich_all(screened, config.enrich)
+        # Cap enrichment to avoid 1,000+ API calls when CSV has many listings.
+        # Pre-sort by price descending (highest-priced first as a quality proxy)
+        # and take only the top candidates needed for the final shortlist.
+        _MAX_ENRICH = max(config.output.max_shortlist * 4, 60)
+        if len(screened) > _MAX_ENRICH:
+            screened_for_enrich = sorted(
+                screened, key=lambda l: l.price or 0, reverse=True
+            )[:_MAX_ENRICH]
+            console.log(
+                f"[dim]Capped enrichment: {_MAX_ENRICH} of {len(screened)} listings "
+                f"(4× shortlist size)[/dim]"
+            )
+        else:
+            screened_for_enrich = screened
+        progress.update(task, description=f"[3/6] Enriching {len(screened_for_enrich)} listings...")
+        if progress_cb: progress_cb(f"[3/6] Enriching {len(screened_for_enrich)} listings with market data (~90s)...")
+        enrich_results = await enrich_all(screened_for_enrich, config.enrich)
         enrichment_errors = [r.error for r in enrich_results if r.error]
         run_log["enrichment_failures"] = enrichment_errors
         if enrichment_errors:
@@ -121,7 +145,8 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
         console.log(f"[dim]Enriched {len(enrich_results)} listings[/dim]")
 
         # ── Stage 4: Analyze ──────────────────────────────────────────────────
-        progress.update(task, description="[4/5] Analyzing financials...")
+        progress.update(task, description="[4/6] Analyzing financials...")
+        if progress_cb: progress_cb("[4/6] Analyzing financials...")
         analyzed = analyze_all(enrich_results, config.financial_assumptions, config.purpose)
         successful = [a for a in analyzed if a.financials.success]
         console.log(
@@ -177,7 +202,8 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
             return Shortlist(market=market, deals=[], run_summary="No listings met the minimum cap rate.")
 
         # ── Stage 5: Flag risks ───────────────────────────────────────────────
-        progress.update(task, description="[5/5] Flagging risks...")
+        progress.update(task, description="[5/6] Flagging risks...")
+        if progress_cb: progress_cb("[5/6] Flagging risks...")
         flagged = flag_all(analyzed, config.criteria)
         high_risk = [f for f in flagged if f.risks.overall_risk.value == "HIGH"]
         if high_risk:
@@ -191,7 +217,8 @@ async def run(market: str, config: InvestmentConfig) -> Shortlist:
         json.dumps([f.model_dump() for f in flagged], indent=2, default=str)
     )
 
-    # ── Rank + narrate ────────────────────────────────────────────────────────
+    # ── Stage 6: Rank + narrate ───────────────────────────────────────────────
+    if progress_cb: progress_cb("[6/6] Ranking with AI...")
     ranker = config.output.ranker
     if ranker == "ollama":
         console.print(
@@ -519,12 +546,18 @@ def _resolve_schema_refs(schema: dict) -> dict:
     return _inline(schema)
 
 
-async def run_single_property(listing_url: str, config: InvestmentConfig) -> Shortlist:
+async def run_single_property(
+    listing_url: str,
+    config: InvestmentConfig,
+    progress_cb=None,
+) -> Shortlist:
     """
     Analyze a single Redfin listing URL.
 
     Skips fetch/screening — goes straight to enrich → analyze → flag → narrate.
     Uses the financial assumptions from config (down payment, loan rate, etc.).
+
+    progress_cb: optional callable(str) — called at each stage for web UI progress.
     """
     from tools.single_property import fetch_single_listing
 
@@ -552,16 +585,20 @@ async def run_single_property(listing_url: str, config: InvestmentConfig) -> Sho
 
         # ── Enrich ────────────────────────────────────────────────────────────
         progress.update(task, description="[1/3] Enriching...")
+        if progress_cb: progress_cb("[1/3] Enriching listing with market data...")
         enrich_results = await enrich_all([listing], config.enrich)
 
         # ── Analyze financials ─────────────────────────────────────────────────
         progress.update(task, description="[2/3] Analyzing financials...")
+        if progress_cb: progress_cb("[2/3] Analyzing financials...")
         analyzed = analyze_all(enrich_results, config.financial_assumptions, config.purpose)
 
         # ── Flag risks ────────────────────────────────────────────────────────
         progress.update(task, description="[3/3] Flagging risks...")
+        if progress_cb: progress_cb("[3/3] Flagging risks...")
         flagged = flag_all(analyzed, config.criteria)
 
+    if progress_cb: progress_cb("[3/3] Ranking with AI...")
     # ── Narrate ───────────────────────────────────────────────────────────────
     ranker = config.output.ranker
     if ranker == "claude":

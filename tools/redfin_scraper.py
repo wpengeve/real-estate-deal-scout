@@ -121,8 +121,28 @@ def parse(html: str) -> ListingFeatures:
     if m:
         f.photo_url = m.group(1)
 
-    # ── Walk / Bike / Transit scores (embedded in walkScoreInfo JSON blob) ─────
-    if "walkScoreInfo" in html:
+    # ── Walk / Bike / Transit scores ──────────────────────────────────────────
+    # New format (2025+): WalkscoreInfo__pill spans with "N/100 Description" text.
+    # Each pill has an SVG with class "bp-SvgIcon walk/transit/bike" followed by the score.
+    if "WalkscoreInfo__pill" in html:
+        idx = html.find("WalkscoreInfo")
+        chunk = html[idx:idx + 3000]
+        for score_class, attr in [
+            ("walk", "walk_score"),
+            ("transit", "transit_score"),
+            ("bike", "bike_score"),
+        ]:
+            m = re.search(
+                rf'bp-SvgIcon {score_class}[^"]*"[^>]*>.*?</svg>\s*(\d{{1,3}})/100',
+                chunk, re.S,
+            )
+            if m:
+                try:
+                    setattr(f, attr, int(m.group(1)))
+                except ValueError:
+                    pass
+    # Legacy format: walkScoreInfo JSON blob embedded in page script
+    elif "walkScoreInfo" in html:
         idx = html.find("walkScoreInfo")
         chunk = html[idx:idx + 1500]
         f.walk_score = _parse_score(chunk, "walkScore")

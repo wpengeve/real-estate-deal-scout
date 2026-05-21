@@ -27,7 +27,7 @@
     html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
 
     /* ── Layout ── */
-    .layout { display: flex; flex-direction: column; height: 100vh; max-width: 800px; margin: 0 auto; }
+    .layout { display: flex; flex-direction: column; height: 100vh; }
 
     /* ── Header ── */
     header { padding: 14px 20px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
@@ -163,15 +163,27 @@
     .btn-view-results { padding: 8px 16px; background: var(--green); color: #fff; border: none; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background .15s; }
     .btn-view-results:hover { background: #15803d; }
     .btn-open-tab { padding: 8px 14px; background: none; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; text-decoration: none; display: inline-block; }
+    .deal-preview-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+    .deal-preview-row { background: #fff; border: 1px solid var(--green-border); border-radius: 8px; padding: 10px 12px; }
+    .deal-preview-row .deal-address { font-size: 12px; color: var(--muted); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .deal-preview-row .deal-stats { display: flex; gap: 16px; font-size: 13px; font-weight: 600; color: var(--text); }
+    .deal-preview-row .deal-stats span { display: flex; flex-direction: column; }
+    .deal-preview-row .deal-stats .stat-label { font-size: 10px; font-weight: 400; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+    .deal-no-results { font-size: 13px; color: var(--muted); font-style: italic; }
 
     /* ── Progress overlay ── */
     #progress-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: center; justify-content: center; }
     #progress-overlay.active { display: flex; }
-    .progress-card { background: #fff; border-radius: 16px; padding: 36px 48px; text-align: center; max-width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
-    .spinner { width: 44px; height: 44px; border: 4px solid #e5e7eb; border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 18px; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .progress-card h2 { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
-    #progress-text { font-size: 14px; color: var(--muted); }
+    .progress-card { background: #fff; border-radius: 16px; padding: 32px 40px; max-width: 380px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
+    .progress-card h2 { font-size: 16px; font-weight: 600; margin-bottom: 20px; text-align: center; }
+    .progress-steps { display: flex; flex-direction: column; gap: 10px; }
+    .progress-step { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+    .progress-step .step-icon { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #e5e7eb; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #9ca3af; flex-shrink: 0; }
+    .progress-step.done .step-icon { background: var(--green); border-color: var(--green); color: #fff; }
+    .progress-step.active .step-icon { background: var(--blue); border-color: var(--blue); color: #fff; animation: pulse-dot 1.5s ease-in-out infinite; }
+    .progress-step.active .step-label { color: var(--text); font-weight: 500; }
+    .progress-step.done .step-label { color: var(--muted); }
+    @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.6} }
   </style>
 </head>
 <body>
@@ -202,7 +214,7 @@
     <div class="messages" id="messages">
       <div class="msg agent">
         <div class="avatar">🤖</div>
-        <div class="bubble">What kind of investment property are you looking for? Tell me your budget, target cities, how many bedrooms you need, and how much you're putting down.</div>
+        <div class="bubble">I scan Redfin for investment properties that match your cap rate target and rank the top 15 deals by cash flow, risk, and walk score. Tell me your budget, target cities, and how many bedrooms you need — and I'll find them.</div>
       </div>
     </div>
 
@@ -351,9 +363,33 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
 <!-- ── Progress overlay ── -->
 <div id="progress-overlay">
   <div class="progress-card">
-    <div class="spinner"></div>
     <h2>Searching for deals…</h2>
-    <p id="progress-text">Starting pipeline...</p>
+    <div class="progress-steps" id="progress-steps">
+      <div class="progress-step" data-step="1">
+        <div class="step-icon">1</div>
+        <span class="step-label">Fetching listings from Redfin</span>
+      </div>
+      <div class="progress-step" data-step="2">
+        <div class="step-icon">2</div>
+        <span class="step-label">Screening against your criteria</span>
+      </div>
+      <div class="progress-step" data-step="3">
+        <div class="step-icon">3</div>
+        <span class="step-label">Enriching with market data</span>
+      </div>
+      <div class="progress-step" data-step="4">
+        <div class="step-icon">4</div>
+        <span class="step-label">Analyzing financials</span>
+      </div>
+      <div class="progress-step" data-step="5">
+        <div class="step-icon">5</div>
+        <span class="step-label">Flagging risks</span>
+      </div>
+      <div class="progress-step" data-step="6">
+        <div class="step-icon">6</div>
+        <span class="step-label">Ranking with AI</span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -382,8 +418,8 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   const messagesEl   = document.getElementById('messages');
   const inputEl      = document.getElementById('msg-input');
   const sendBtn      = document.getElementById('send-btn');
-  const overlay      = document.getElementById('progress-overlay');
-  const progressText = document.getElementById('progress-text');
+  const overlay       = document.getElementById('progress-overlay');
+  const progressSteps = document.getElementById('progress-steps');
 
   // ── Textarea auto-resize ──────────────────────────────────────────────────
   inputEl.addEventListener('input', () => {
@@ -509,7 +545,7 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   }
 
   async function analyzePropertyUrl(url) {
-    showProgress('Fetching and analyzing listing...');
+    showProgress();
     try {
       const res = await fetch('/api/analyze-property', {
         method: 'POST', headers: {'Content-Type':'application/json'},
@@ -531,7 +567,7 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   }
 
   async function analyzeMultiAddresses(addresses) {
-    showProgress(`Resolving ${addresses.length} addresses...`);
+    showProgress();
     try {
       const res = await fetch('/api/analyze-multi', {
         method: 'POST', headers: {'Content-Type':'application/json'},
@@ -575,6 +611,7 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
     // 1. Direct Redfin URL — analyze immediately
     const redfinUrl = extractRedfinUrl(text);
     if (redfinUrl) {
+      _lastAnalyzedAddress = redfinUrl;
       appendMsg('agent', '🏠 Got a Redfin listing — analyzing this property...');
       await analyzePropertyUrl(redfinUrl);
       sendBtn.disabled = false; inputEl.focus();
@@ -585,26 +622,37 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
     //    (e.g. "6612 NE 202nd St Kenmore WA" or "can you analyze 123 Main St Seattle?")
     const foundAddr = looksLikeAddress(text) ? text : findAddressInText(text);
     if (foundAddr) {
-      appendMsg('agent', '🔍 Looking up that address on Redfin...');
-      try {
-        const res = await fetch('/api/resolve-address', {
-          method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ address: foundAddr }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.url) {
-            appendMsg('agent', `🏠 Found it — analyzing **${foundAddr.split(',')[0]}**...`);
-            await analyzePropertyUrl(data.url);
-            sendBtn.disabled = false; inputEl.focus();
-            return;
+      // If this address was already analyzed and results are showing, treat
+      // the message as a follow-up comment — send to Claude instead.
+      const normalizeAddr = a => a.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
+      const norm = normalizeAddr(foundAddr);
+      const alreadySeen = (_lastAnalyzedAddress && norm === normalizeAddr(_lastAnalyzedAddress))
+                       || _resultAddresses.has(norm);
+      if (alreadySeen) {
+        // fall through to Claude chat below
+      } else {
+        appendMsg('agent', '🔍 Looking up that address on Redfin...');
+        try {
+          const res = await fetch('/api/resolve-address', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ address: foundAddr }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.url) {
+              _lastAnalyzedAddress = foundAddr;
+              appendMsg('agent', `🏠 Found it — analyzing **${foundAddr.split(',')[0]}**...`);
+              await analyzePropertyUrl(data.url);
+              sendBtn.disabled = false; inputEl.focus();
+              return;
+            }
           }
-        }
-      } catch { /* fall through to manual prompt */ }
-      // Resolution failed — ask user to paste the URL directly, don't send to Claude
-      appendMsg('agent', "Couldn't find that address automatically. Search for it on [redfin.com](https://www.redfin.com) and paste the listing URL here.");
-      sendBtn.disabled = false; inputEl.focus();
-      return;
+        } catch { /* fall through to manual prompt */ }
+        // Resolution failed — ask user to paste the URL directly, don't send to Claude
+        appendMsg('agent', "Couldn't find that address automatically. Search for it on [redfin.com](https://www.redfin.com) and paste the listing URL here.");
+        sendBtn.disabled = false; inputEl.focus();
+        return;
+      }
     }
 
     showTyping();
@@ -621,7 +669,7 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
       }
       const data = await res.json();
       appendMsg('agent', data.text);
-      if (data.run_id) { showProgress('Analyzing properties...'); pollStatus(data.run_id); return; }
+      if (data.run_id) { showProgress(); pollStatus(data.run_id); return; }
       if (data.confirmed && data.criteria) showChatCriteria(data.criteria);
     } catch {
       hideTyping();
@@ -684,7 +732,7 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   function resetChat() {
     messagesEl.innerHTML = `<div class="msg agent">
       <div class="avatar">🤖</div>
-      <div class="bubble">What kind of investment property are you looking for? Tell me your budget, target cities, how many bedrooms you need, and how much you're putting down.</div>
+      <div class="bubble">I scan Redfin for investment properties that match your cap rate target and rank the top 15 deals by cash flow, risk, and walk score. Tell me your budget, target cities, and how many bedrooms you need — and I'll find them.</div>
     </div>`;
     inputEl.placeholder = 'Describe what you\'re looking for…';
     document.getElementById('chat-find-btn')?.closest('#inline-criteria-card')?.remove();
@@ -714,8 +762,25 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   }
 
   // ── Progress overlay ──────────────────────────────────────────────────────
-  function showProgress(msg) { overlay.classList.add('active'); progressText.textContent = msg || 'Starting…'; }
+  function showProgress() {
+    // Reset all steps to pending state
+    progressSteps.querySelectorAll('.progress-step').forEach(s => {
+      s.classList.remove('active', 'done');
+    });
+    overlay.classList.add('active');
+  }
   function hideProgress() { overlay.classList.remove('active'); }
+
+  function updateProgressSteps(progressMsg) {
+    const m = progressMsg && progressMsg.match(/^\[(\d+)\/6\]/);
+    const current = m ? parseInt(m[1], 10) : 0;
+    progressSteps.querySelectorAll('.progress-step').forEach(s => {
+      const n = parseInt(s.dataset.step, 10);
+      s.classList.remove('active', 'done');
+      if (n < current) s.classList.add('done');
+      else if (n === current) s.classList.add('active');
+    });
+  }
 
   // ── Poll status ───────────────────────────────────────────────────────────
   async function pollStatus(runId) {
@@ -730,10 +795,10 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
         return;
       }
       const data = await res.json();
-      progressText.textContent = data.progress || 'Running…';
+      updateProgressSteps(data.progress);
       if (data.status === 'done' && data.report_url) {
         hideProgress();
-        showResults(data.report_url);
+        showResults(data.report_url, data.preview_deals || []);
         return;
       }
       if (data.status === 'error') {
@@ -751,12 +816,41 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
 
   // ── Results panel ─────────────────────────────────────────────────────────
   let _lastReportUrl = null;
+  let _lastAnalyzedAddress = null;   // set after single-property analysis
+  let _resultAddresses = new Set();  // normalized addresses from any completed results
 
-  function showResults(reportUrl) {
+  function showResults(reportUrl, previewDeals) {
     _lastReportUrl = reportUrl;
+    // Index addresses so follow-up chat about them doesn't re-trigger analysis
+    (previewDeals || []).forEach(d => {
+      if (d.address) _resultAddresses.add(d.address.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20));
+    });
     document.getElementById('report-frame').src = reportUrl;
     document.getElementById('results-open-link').href = reportUrl;
     document.getElementById('results-label').textContent = 'Deal Scout Results';
+
+    // Build inline deal preview section
+    let dealsHtml;
+    if (!previewDeals || previewDeals.length === 0) {
+      dealsHtml = `<p class="deal-no-results">No deals matched your criteria. Try widening your price range or target cities.</p>`;
+    } else {
+      const rows = previewDeals.map(d => {
+        const price = d.price ? '$' + (d.price / 1e6).toFixed(2) + 'M' : '—';
+        const capRate = d.cap_rate != null ? (d.cap_rate * 100).toFixed(1) + '%' : '—';
+        const cashflow = d.monthly_cashflow != null
+          ? (d.monthly_cashflow >= 0 ? '+$' : '-$') + Math.abs(Math.round(d.monthly_cashflow)).toLocaleString() + '/mo'
+          : '—';
+        return `<div class="deal-preview-row">
+          <div class="deal-address">${d.address || '—'}</div>
+          <div class="deal-stats">
+            <span><span class="stat-label">Price</span>${price}</span>
+            <span><span class="stat-label">Cap Rate</span>${capRate}</span>
+            <span><span class="stat-label">Cashflow</span>${cashflow}</span>
+          </div>
+        </div>`;
+      }).join('');
+      dealsHtml = `<div class="deal-preview-list">${rows}</div>`;
+    }
 
     // Post a persistent result card into the chat so the user can get back
     const wrap = document.createElement('div');
@@ -764,9 +858,10 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
     const av = document.createElement('div'); av.className = 'avatar'; av.textContent = '🤖';
     const b = document.createElement('div'); b.className = 'bubble';
     b.innerHTML = `<div class="results-msg-card">
-      <h3>✅ Analysis complete — results are ready</h3>
+      <h3>✅ Analysis complete — top deals</h3>
+      ${dealsHtml}
       <div class="results-card-actions">
-        <button class="btn-view-results" onclick="viewResults()">View Results →</button>
+        <button class="btn-view-results" onclick="viewResults()">View Full Report →</button>
         <a class="btn-open-tab" href="${reportUrl}" target="_blank">Open in new tab ↗</a>
       </div>
     </div>`;

@@ -423,6 +423,7 @@ async def run_status(run_id: str):
         "progress": run.get("progress", ""),
         "report_url": f"/reports/{run_id}" if run["status"] == "done" else None,
         "error": run.get("error"),
+        "preview_deals": run.get("preview_deals", []),
     }
 
 
@@ -486,7 +487,7 @@ async def analyze_property(
         status="running",
         criteria={"url": req.url},
     )
-    asyncio.create_task(_run_single_property_bg(run_id, req.url, config, user_id=user.id if user else None))
+    asyncio.create_task(_run_single_property_bg(run_id, req.url, config, session_id=req.session_id, user_id=user.id if user else None))
     return {"run_id": run_id}
 
 
@@ -494,11 +495,15 @@ async def _run_single_property_bg(
     run_id: str,
     url: str,
     config: InvestmentConfig,
+    session_id: str | None = None,
     user_id: int | None = None,
 ) -> None:
     try:
-        _runs[run_id]["progress"] = "Fetching and analyzing listing..."
-        shortlist = await run_single_property(url, config)
+        def _cb(msg: str) -> None:
+            _runs[run_id]["progress"] = msg
+
+        _runs[run_id]["progress"] = "[1/3] Enriching listing with market data..."
+        shortlist = await run_single_property(url, config, progress_cb=_cb)
 
         _OUTPUTS_DIR.mkdir(exist_ok=True)
         report_path = _OUTPUTS_DIR / f"web_{run_id}.html"
@@ -506,7 +511,19 @@ async def _run_single_property_bg(
         from tools.report import generate_report
         generate_report(shortlist, report_path, config.financial_assumptions)
 
-        _runs[run_id] = {"status": "done", "progress": "Analysis complete"}
+        preview_deals = [
+            {
+                "address": d.address,
+                "price": d.price,
+                "cap_rate": d.cap_rate,
+                "monthly_cashflow": d.monthly_cashflow,
+            }
+            for d in shortlist.deals[:3]
+        ]
+        _runs[run_id] = {"status": "done", "progress": "Analysis complete", "preview_deals": preview_deals}
+
+        if session_id and session_id in _chat_sessions:
+            _chat_sessions[session_id].set_shortlist(shortlist)
 
         db = get_db()
         try:
@@ -640,8 +657,11 @@ async def _run_pipeline_bg(
     session_id: str | None = None,
 ) -> None:
     try:
-        _runs[run_id]["progress"] = "Fetching and enriching listings (1–2 min)..."
-        shortlist = await run_pipeline(config.output.market, config)
+        def _cb(msg: str) -> None:
+            _runs[run_id]["progress"] = msg
+
+        _runs[run_id]["progress"] = "[1/6] Fetching listings from Redfin..."
+        shortlist = await run_pipeline(config.output.market, config, progress_cb=_cb)
 
         _OUTPUTS_DIR.mkdir(exist_ok=True)
         report_path = _OUTPUTS_DIR / f"web_{run_id}.html"
@@ -649,7 +669,20 @@ async def _run_pipeline_bg(
         from tools.report import generate_report
         generate_report(shortlist, report_path, config.financial_assumptions)
 
-        _runs[run_id] = {"status": "done", "progress": f"Found {len(shortlist.deals)} deals"}
+        preview_deals = [
+            {
+                "address": d.address,
+                "price": d.price,
+                "cap_rate": d.cap_rate,
+                "monthly_cashflow": d.monthly_cashflow,
+            }
+            for d in shortlist.deals[:3]
+        ]
+        _runs[run_id] = {
+            "status": "done",
+            "progress": f"Found {len(shortlist.deals)} deals",
+            "preview_deals": preview_deals,
+        }
         logger.info("Run %s complete — %d deals", run_id, len(shortlist.deals))
 
         if session_id and session_id in _chat_sessions:
