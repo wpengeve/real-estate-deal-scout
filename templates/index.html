@@ -624,10 +624,11 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
     if (foundAddr) {
       // If this address was already analyzed and results are showing, treat
       // the message as a follow-up comment — send to Claude instead.
-      const normalizeAddr = a => a.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
+      const normalizeAddr = a => a.toLowerCase().replace(/[^a-z0-9]/g, '');
       const norm = normalizeAddr(foundAddr);
-      const alreadySeen = (_lastAnalyzedAddress && norm === normalizeAddr(_lastAnalyzedAddress))
-                       || _resultAddresses.has(norm);
+      const lastNorm = _lastAnalyzedAddress ? normalizeAddr(_lastAnalyzedAddress) : '';
+      const alreadySeen = (lastNorm && (lastNorm.startsWith(norm) || norm.startsWith(lastNorm)))
+                       || [..._resultAddresses].some(r => r.startsWith(norm) || norm.startsWith(r));
       if (alreadySeen) {
         // fall through to Claude chat below
       } else {
@@ -823,7 +824,7 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
     _lastReportUrl = reportUrl;
     // Index addresses so follow-up chat about them doesn't re-trigger analysis
     (previewDeals || []).forEach(d => {
-      if (d.address) _resultAddresses.add(d.address.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20));
+      if (d.address) _resultAddresses.add(d.address.toLowerCase().replace(/[^a-z0-9]/g, ''));
     });
     document.getElementById('report-frame').src = reportUrl;
     document.getElementById('results-open-link').href = reportUrl;
