@@ -424,6 +424,8 @@ async def run_status(run_id: str):
         "report_url": f"/reports/{run_id}" if run["status"] == "done" else None,
         "error": run.get("error"),
         "preview_deals": run.get("preview_deals", []),
+        "all_addresses": run.get("all_addresses", []),
+        "purpose": run.get("purpose", "rental"),
     }
 
 
@@ -517,10 +519,18 @@ async def _run_single_property_bg(
                 "price": d.price,
                 "cap_rate": d.cap_rate,
                 "monthly_cashflow": d.monthly_cashflow,
+                "monthly_piti": d.monthly_piti,
             }
             for d in shortlist.deals[:3]
         ]
-        _runs[run_id] = {"status": "done", "progress": "Analysis complete", "preview_deals": preview_deals}
+        all_addresses = [d.address for d in shortlist.deals if d.address]
+        _runs[run_id] = {
+            "status": "done",
+            "progress": "Analysis complete",
+            "preview_deals": preview_deals,
+            "all_addresses": all_addresses,
+            "purpose": shortlist.purpose,
+        }
 
         if session_id and session_id in _chat_sessions:
             _chat_sessions[session_id].set_shortlist(shortlist)
@@ -626,7 +636,13 @@ async def _run_multi_property_bg(
         from tools.report import generate_report
         generate_report(shortlist, report_path, config.financial_assumptions)
 
-        _runs[run_id] = {"status": "done", "progress": f"Compared {len(shortlist.deals)} properties"}
+        all_addresses = [d.address for d in shortlist.deals if d.address]
+        _runs[run_id] = {
+            "status": "done",
+            "progress": f"Compared {len(shortlist.deals)} properties",
+            "all_addresses": all_addresses,
+            "purpose": shortlist.purpose,
+        }
 
         if session_id and session_id in _chat_sessions:
             _chat_sessions[session_id].set_shortlist(shortlist)
@@ -675,13 +691,17 @@ async def _run_pipeline_bg(
                 "price": d.price,
                 "cap_rate": d.cap_rate,
                 "monthly_cashflow": d.monthly_cashflow,
+                "monthly_piti": d.monthly_piti,
             }
             for d in shortlist.deals[:3]
         ]
+        all_addresses = [d.address for d in shortlist.deals if d.address]
         _runs[run_id] = {
             "status": "done",
             "progress": f"Found {len(shortlist.deals)} deals",
             "preview_deals": preview_deals,
+            "all_addresses": all_addresses,
+            "purpose": shortlist.purpose,
         }
         logger.info("Run %s complete — %d deals", run_id, len(shortlist.deals))
 

@@ -799,7 +799,7 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
       updateProgressSteps(data.progress);
       if (data.status === 'done' && data.report_url) {
         hideProgress();
-        showResults(data.report_url, data.preview_deals || []);
+        showResults(data.report_url, data.preview_deals || [], data.all_addresses || [], data.purpose || 'rental');
         return;
       }
       if (data.status === 'error') {
@@ -820,9 +820,14 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   let _lastAnalyzedAddress = null;   // set after single-property analysis
   let _resultAddresses = new Set();  // normalized addresses from any completed results
 
-  function showResults(reportUrl, previewDeals) {
+  function showResults(reportUrl, previewDeals, allAddresses, purpose) {
     _lastReportUrl = reportUrl;
-    // Index addresses so follow-up chat about them doesn't re-trigger analysis
+    // Index ALL shortlist addresses so follow-up chat about any listed property
+    // doesn't re-trigger analysis instead of going to Claude.
+    (allAddresses || []).forEach(addr => {
+      if (addr) _resultAddresses.add(addr.toLowerCase().replace(/[^a-z0-9]/g, ''));
+    });
+    // Also index preview deals (backward compat / multi-property path)
     (previewDeals || []).forEach(d => {
       if (d.address) _resultAddresses.add(d.address.toLowerCase().replace(/[^a-z0-9]/g, ''));
     });
@@ -835,18 +840,29 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
     if (!previewDeals || previewDeals.length === 0) {
       dealsHtml = `<p class="deal-no-results">No deals matched your criteria. Try widening your price range or target cities.</p>`;
     } else {
+      const isPrimary = purpose === 'primary';
       const rows = previewDeals.map(d => {
         const price = d.price ? '$' + (d.price / 1e6).toFixed(2) + 'M' : '—';
-        const capRate = d.cap_rate != null ? (d.cap_rate * 100).toFixed(1) + '%' : '—';
-        const cashflow = d.monthly_cashflow != null
-          ? (d.monthly_cashflow >= 0 ? '+$' : '-$') + Math.abs(Math.round(d.monthly_cashflow)).toLocaleString() + '/mo'
-          : '—';
+        let stat2Label, stat2Val, stat3Label, stat3Val;
+        if (isPrimary) {
+          stat2Label = 'Monthly PITI';
+          stat2Val = d.monthly_piti != null ? '$' + Math.round(d.monthly_piti).toLocaleString() + '/mo' : '—';
+          stat3Label = '';
+          stat3Val = '';
+        } else {
+          stat2Label = 'Cap Rate';
+          stat2Val = d.cap_rate != null ? (d.cap_rate * 100).toFixed(1) + '%' : '—';
+          stat3Label = 'Cashflow';
+          stat3Val = d.monthly_cashflow != null
+            ? (d.monthly_cashflow >= 0 ? '+$' : '-$') + Math.abs(Math.round(d.monthly_cashflow)).toLocaleString() + '/mo'
+            : '—';
+        }
         return `<div class="deal-preview-row">
           <div class="deal-address">${d.address || '—'}</div>
           <div class="deal-stats">
             <span><span class="stat-label">Price</span>${price}</span>
-            <span><span class="stat-label">Cap Rate</span>${capRate}</span>
-            <span><span class="stat-label">Cashflow</span>${cashflow}</span>
+            <span><span class="stat-label">${stat2Label}</span>${stat2Val}</span>
+            ${stat3Label ? `<span><span class="stat-label">${stat3Label}</span>${stat3Val}</span>` : ''}
           </div>
         </div>`;
       }).join('');
