@@ -625,7 +625,11 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
       // If this address was already analyzed and results are showing, treat
       // the message as a follow-up comment — send to Claude instead.
       const normalizeAddr = a => a.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const norm = normalizeAddr(foundAddr);
+      // findAddressInText greedily captures trailing sentence text (e.g. "123 Main St — tell me more").
+      // Strip everything after the first comma or dash separator before normalizing so the
+      // result matches the city+state+zip form stored in _resultAddresses.
+      const addrForMatch = foundAddr.split(/[,—–]|\s+[-–—]\s+|\s+--\s+/)[0].trim();
+      const norm = normalizeAddr(addrForMatch);
       const lastNorm = _lastAnalyzedAddress ? normalizeAddr(_lastAnalyzedAddress) : '';
       const alreadySeen = (lastNorm && (lastNorm.startsWith(norm) || norm.startsWith(lastNorm)))
                        || [..._resultAddresses].some(r => r.startsWith(norm) || norm.startsWith(r));
