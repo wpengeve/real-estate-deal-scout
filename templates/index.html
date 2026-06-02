@@ -214,7 +214,7 @@
     <div class="messages" id="messages">
       <div class="msg agent">
         <div class="avatar">🤖</div>
-        <div class="bubble">I scan Redfin for investment properties that match your cap rate target and rank the top 15 deals by cash flow, risk, and walk score. Tell me your budget, target cities, and how many bedrooms you need — and I'll find them.</div>
+        <div class="bubble">I scan Redfin for properties in the Seattle metro and rank the best matches by financials, risk, and walkability. Tell me if you're buying to live in or rent out, your budget, target cities, and how many bedrooms — and I'll find them.</div>
       </div>
     </div>
 
@@ -737,7 +737,7 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   function resetChat() {
     messagesEl.innerHTML = `<div class="msg agent">
       <div class="avatar">🤖</div>
-      <div class="bubble">I scan Redfin for investment properties that match your cap rate target and rank the top 15 deals by cash flow, risk, and walk score. Tell me your budget, target cities, and how many bedrooms you need — and I'll find them.</div>
+      <div class="bubble">I scan Redfin for properties in the Seattle metro and rank the best matches by financials, risk, and walkability. Tell me if you're buying to live in or rent out, your budget, target cities, and how many bedrooms — and I'll find them.</div>
     </div>`;
     inputEl.placeholder = 'Describe what you\'re looking for…';
     document.getElementById('chat-find-btn')?.closest('#inline-criteria-card')?.remove();
