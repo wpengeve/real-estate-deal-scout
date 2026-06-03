@@ -37,6 +37,27 @@ _SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY")
 _SCRAPERAPI_URL = "https://api.scraperapi.com/structured/redfin/search"
 _SCRAPERAPI_TIMEOUT = 60.0  # structured endpoints can be slow
 
+_RENTCAST_KEY = os.getenv("RENTCAST_API_KEY")
+_RENTCAST_BASE_URL = "https://api.rentcast.io/v1"
+
+# Rentcast propertyType → our home_type
+_RENTCAST_PROP_TYPE_MAP: dict[str, str] = {
+    "Single Family": "Single Family",
+    "Condo": "Condo",
+    "Townhouse": "Townhouse",
+    "Multi Family": "Multi-Family",
+    "Multi-Family": "Multi-Family",
+    "Apartment": "Multi-Family",
+}
+
+# Our home_type → Rentcast propertyType (for query params)
+_HOME_TYPE_TO_RENTCAST: dict[str, str] = {
+    "Single Family": "Single Family",
+    "Condo": "Condo",
+    "Townhouse": "Townhouse",
+    "Multi-Family": "Multi Family",
+}
+
 # Response cache — avoids burning credits on repeated runs with the same criteria.
 # Each structured Redfin call costs 25 credits; caching makes reruns essentially free.
 _CACHE_DIR = Path("data/scraperapi_cache")
@@ -115,11 +136,11 @@ def fetch_listings(
         ValueError:        fixtures file contains invalid JSON (fixtures mode)
         RuntimeError:      Redfin request failed (redfin mode)
     """
-    if fetch_config and fetch_config.data_source == "scraperapi":
-        # ScraperAPI requires async I/O. Callers inside a running event loop
+    if fetch_config and fetch_config.data_source in ("scraperapi", "rentcast"):
+        # These backends require async I/O. Callers inside a running event loop
         # (e.g. pipeline.py) must use fetch_listings_async() instead.
         raise RuntimeError(
-            "data_source=scraperapi requires an async caller. "
+            f"data_source={fetch_config.data_source} requires an async caller. "
             "Use `await fetch_listings_async(market, config)` from an async context."
         )
 
@@ -152,6 +173,9 @@ async def fetch_listings_async(
     if fetch_config and fetch_config.data_source == "scraperapi":
         logger.info("Fetching live listings from ScraperAPI for %s", market)
         return await _fetch_from_scraperapi(fetch_config)
+    if fetch_config and fetch_config.data_source == "rentcast":
+        logger.info("Fetching live listings from Rentcast for %s", market)
+        return await _fetch_from_rentcast(fetch_config)
     return fetch_listings(market, fetch_config)
 
 
@@ -958,3 +982,175 @@ async def _geocode_listings(
         return listing
 
     return list(await asyncio.gather(*(_resolve(l) for l in listings)))
+
+
+# ── Rentcast backend ───────────────────────────────────────────────────────────
+
+async def _fetch_from_rentcast(fetch_config: FetchConfig) -> list[RawListing]:
+    """
+    Fetch active sale listings from the Rentcast API.
+
+    Queries /v1/listings/sale per city (up to 3 cities, auto-populated by pipeline.py
+    from criteria.allowed_cities). Responses are cached for SCRAPERAPI_CACHE_TTL_HOURS.
+
+    Requires RENTCAST_API_KEY in .env.
+    Free tier: 50 calls/month — sign up at https://app.rentcast.io/app/login
+    """
+    api_key = _RENTCAST_KEY
+    if not api_key:
+        raise RuntimeError(
+            "RENTCAST_API_KEY is not set. Add it to .env.\n"
+            "Sign up free (50 calls/mo): https://app.rentcast.io/app/login"
+        )
+
+    cities = fetch_config.rentcast_cities
+    state = fetch_config.rentcast_state
+
+    if not cities or not state:
+        raise RuntimeError(
+            "Rentcast requires city and state. These are auto-populated from "
+            "criteria.allowed_cities and the market name — check pipeline.py."
+        )
+
+    # Build base query params (city/state added per iteration)
+    base_params: dict = {"status": "Active", "limit": 500}
+    if fetch_config.rentcast_max_price is not None:
+        base_params["maxPrice"] = int(fetch_config.rentcast_max_price)
+    if fetch_config.rentcast_min_price is not None:
+        base_params["minPrice"] = int(fetch_config.rentcast_min_price)
+    if fetch_config.rentcast_min_beds is not None:
+        base_params["bedrooms"] = int(fetch_config.rentcast_min_beds)
+    if fetch_config.rentcast_min_baths is not None:
+        base_params["bathrooms"] = fetch_config.rentcast_min_baths
+    if fetch_config.rentcast_home_types:
+        mapped = [_HOME_TYPE_TO_RENTCAST.get(t, t) for t in fetch_config.rentcast_home_types]
+        if len(mapped) == 1:
+            base_params["propertyType"] = mapped[0]
+        # Multi-type filter not supported by Rentcast; screening handles it post-fetch
+
+    all_listings: list[RawListing] = []
+    seen: set[str] = set()
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for city in cities:
+            city_params = {**base_params, "city": city, "state": state}
+            cache_key = f"rentcast_{json.dumps(city_params, sort_keys=True)}"
+
+            cached = _cache_get(cache_key)
+            if cached is not None:
+                logger.info("Rentcast: cache hit for %s, %s (skipping API call)", city, state)
+                raw_items = cached
+            else:
+                raw_items = []
+                offset = 0
+                while True:
+                    params = {**city_params, "offset": offset}
+                    logger.info("Rentcast: fetching %s, %s (offset=%d)", city, state, offset)
+                    try:
+                        resp = await client.get(
+                            f"{_RENTCAST_BASE_URL}/listings/sale",
+                            headers={"X-Api-Key": api_key, "Accept": "application/json"},
+                            params=params,
+                            timeout=30.0,
+                        )
+                        resp.raise_for_status()
+                    except httpx.HTTPStatusError as e:
+                        code = e.response.status_code
+                        if code == 401:
+                            raise RuntimeError(
+                                "RENTCAST_API_KEY is invalid. Check your .env."
+                            ) from e
+                        if code == 429:
+                            raise RuntimeError(
+                                "Rentcast API rate limit exceeded. "
+                                "Try again later or upgrade your plan."
+                            ) from e
+                        raise RuntimeError(
+                            f"Rentcast returned HTTP {code} for {city}, {state}"
+                        ) from e
+
+                    page = resp.json()
+                    if not page:
+                        break
+                    raw_items.extend(page)
+                    logger.info(
+                        "Rentcast: +%d listings from %s, %s (offset=%d)",
+                        len(page), city, state, offset,
+                    )
+                    if len(page) < 500:
+                        break
+                    offset += 500
+
+                _cache_set(cache_key, raw_items)
+
+            before = len(all_listings)
+            for item in raw_items:
+                listing = _rentcast_to_raw_listing(item)
+                if listing:
+                    addr_key = listing.address.strip().lower()
+                    if addr_key not in seen:
+                        seen.add(addr_key)
+                        all_listings.append(listing)
+            logger.info(
+                "Rentcast: +%d unique listings from %s (total=%d)",
+                len(all_listings) - before, city, len(all_listings),
+            )
+
+    logger.info("Rentcast: %d total unique listings fetched", len(all_listings))
+    return all_listings
+
+
+def _rentcast_to_raw_listing(item: dict) -> RawListing | None:
+    """Convert one Rentcast API listing to a RawListing."""
+    try:
+        address = (item.get("formattedAddress") or "").strip()
+        if not address:
+            parts = [
+                item.get("addressLine1", ""),
+                item.get("city", ""),
+                item.get("state", ""),
+                item.get("zipCode", ""),
+            ]
+            address = ", ".join(p for p in parts if p).strip(", ")
+        if not address:
+            return None
+
+        hoa_fee: float | None = None
+        hoa_data = item.get("hoa")
+        if isinstance(hoa_data, dict):
+            fee = hoa_data.get("fee")
+            if fee is not None:
+                hoa_fee = float(fee) if float(fee) > 0 else None
+
+        dom = item.get("daysOnMarket")
+        if dom is None:
+            listed = item.get("listedDate") or item.get("lastSeenDate")
+            if listed:
+                from datetime import date as _date
+                try:
+                    dom = (_date.today() - _date.fromisoformat(listed[:10])).days
+                except Exception:
+                    pass
+
+        photos = item.get("photos") or []
+        photo_url = photos[0] if photos else None
+
+        return RawListing(
+            zpid=item.get("id") or address,
+            address=address,
+            price=float(item["price"]) if item.get("price") is not None else None,
+            beds=int(item["bedrooms"]) if item.get("bedrooms") is not None else None,
+            baths=float(item["bathrooms"]) if item.get("bathrooms") is not None else None,
+            sqft=int(item["squareFootage"]) if item.get("squareFootage") is not None else None,
+            lot_sqft=int(item["lotSize"]) if item.get("lotSize") is not None else None,
+            home_type=_RENTCAST_PROP_TYPE_MAP.get((item.get("propertyType") or "").strip()),
+            hoa_fee=hoa_fee,
+            days_on_market=int(dom) if dom is not None else None,
+            latitude=float(item["latitude"]) if item.get("latitude") is not None else None,
+            longitude=float(item["longitude"]) if item.get("longitude") is not None else None,
+            year_built=int(item["yearBuilt"]) if item.get("yearBuilt") is not None else None,
+            photo_url=photo_url,
+        )
+    except Exception as exc:
+        logger.warning("Skipping malformed Rentcast listing: %s", exc)
+        return None

@@ -16,13 +16,21 @@ from pydantic import BaseModel, Field
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 class FetchConfig(BaseModel):
-    data_source: str = "fixtures"      # "fixtures", "csv", "redfin", or "scraperapi"
+    data_source: str = "fixtures"      # "fixtures", "csv", "redfin", "scraperapi", or "rentcast"
     csv_path: str = "data/redfin.csv"  # single CSV path (used when csv_paths is empty)
     csv_paths: list[str] = Field(default_factory=list)  # multiple CSVs — merged and deduplicated by address
     redfin_region_id: int = 118        # King County, WA — find yours: go to redfin.com,
     redfin_region_type: int = 5        # search your area, click Download All, check the URL
     redfin_max_homes: int = 350        # Redfin's hard cap per request
     scraperapi_search_urls: list[str] = Field(default_factory=list)  # Redfin search URLs to scrape
+    # Rentcast — only used when data_source: rentcast. Auto-populated from criteria by pipeline.
+    rentcast_cities: list[str] = Field(default_factory=list)   # city names to query (up to 3)
+    rentcast_state: str = ""                                    # 2-letter state code, e.g. "WA"
+    rentcast_max_price: float | None = None
+    rentcast_min_price: float | None = None
+    rentcast_min_beds: int | None = None
+    rentcast_min_baths: float | None = None
+    rentcast_home_types: list[str] | None = None
 
 
 class EnrichConfig(BaseModel):

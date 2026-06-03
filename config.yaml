@@ -2,7 +2,7 @@
 # All fields are required unless marked with a default comment.
 
 fetch:
-  data_source: csv             # "fixtures" | "csv" | "redfin" | "scraperapi"
+  data_source: scraperapi      # "fixtures" | "csv" | "redfin" | "scraperapi" | "rentcast"
   csv_path: data/redfin.csv    # single CSV — used when csv_paths is not set
   csv_paths:                   # combine multiple CSVs (merged + deduplicated by address)
     - data/redfin_2026-03-27-21-35-29.csv
@@ -24,7 +24,13 @@ fetch:
   # Requires SCRAPERAPI_KEY in .env (free tier: 1,000 credits/month)
   scraperapi_search_urls:
     - "https://www.redfin.com/county/1935/WA/King-County/filter/min-beds=3,max-price=2250000,property-type=house"
-    - "https://www.redfin.com/county/1943/WA/Snohomish-County/filter/min-beds=3,max-price=2250000,property-type=house"
+
+  # Rentcast — only used when data_source: rentcast
+  # All fields below are auto-populated by the pipeline from criteria.allowed_cities.
+  # Requires RENTCAST_API_KEY in .env.
+  # Sign up free (50 calls/mo): https://app.rentcast.io/app/login
+  # rentcast_cities: []    # auto-filled — up to 3 from allowed_cities
+  # rentcast_state: ""     # auto-filled — extracted from output.market ("Seattle, WA" → "WA")
 
 enrich:
   hud_rent_multiplier: 1.0       # Validated against Zillow Rent Zestimate (Apr 2026): HUD FMR

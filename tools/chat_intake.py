@@ -321,6 +321,9 @@ def _build_config(extracted: dict, base: InvestmentConfig) -> InvestmentConfig:
     elif market_changed and base.fetch.data_source == "scraperapi":
         # Different market — clear pre-configured URLs so pipeline auto-resolves
         fetch = base.fetch.model_copy(update={"scraperapi_search_urls": []})
+    elif market_changed and base.fetch.data_source == "rentcast":
+        # Different market — clear cached cities so pipeline auto-populates from new criteria
+        fetch = base.fetch.model_copy(update={"rentcast_cities": [], "rentcast_state": ""})
     else:
         fetch = base.fetch
 

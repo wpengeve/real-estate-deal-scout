@@ -85,6 +85,7 @@ async def run(
                 max_price=config.criteria.max_price,
                 min_beds=config.criteria.min_beds,
                 home_types=config.criteria.preferred_home_types,
+                max_cities=1,
             )
             if resolved:
                 console.log(f"[dim]Resolved {len(resolved)} Redfin URL(s)[/dim]")
@@ -96,6 +97,31 @@ async def run(
                     "[yellow]Could not auto-resolve Redfin URLs for this market. "
                     "Try providing search URLs manually.[/yellow]"
                 )
+
+        # Auto-populate Rentcast params from criteria when not already set.
+        # Caps at 3 cities to stay within free-tier call limits (50 calls/month).
+        if (
+            fetch_config.data_source == "rentcast"
+            and not fetch_config.rentcast_cities
+            and config.criteria.allowed_cities
+        ):
+            # Extract 2-letter state code from market name (e.g. "Seattle, WA" → "WA")
+            state_part = market.split(",")[-1].strip().upper()
+            state = state_part[:2] if len(state_part) >= 2 else ""
+            fetch_config = fetch_config.model_copy(update={
+                "rentcast_cities": config.criteria.allowed_cities[:3],
+                "rentcast_state": state,
+                "rentcast_max_price": config.criteria.max_price,
+                "rentcast_min_price": config.criteria.min_price,
+                "rentcast_min_beds": config.criteria.min_beds,
+                "rentcast_min_baths": config.criteria.min_baths,
+                "rentcast_home_types": config.criteria.preferred_home_types,
+            })
+            console.log(
+                f"[dim]Rentcast: querying {len(fetch_config.rentcast_cities)} "
+                f"cit{'y' if len(fetch_config.rentcast_cities)==1 else 'ies'} "
+                f"in {state}[/dim]"
+            )
 
         raw = await fetch_listings_async(market, fetch_config)
         run_log["listings_fetched"] = len(raw)
