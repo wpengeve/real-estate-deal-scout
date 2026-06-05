@@ -93,10 +93,15 @@ async def run(
                     update={"scraperapi_search_urls": resolved}
                 )
             else:
-                console.print(
-                    "[yellow]Could not auto-resolve Redfin URLs for this market. "
-                    "Try providing search URLs manually.[/yellow]"
+                city_list = ", ".join(config.criteria.allowed_cities[:3])
+                msg = (
+                    f"Could not find Redfin listings for: {city_list}. "
+                    "Try starting over and including a major city like 'Seattle' — "
+                    "neighborhoods and small suburbs work best when paired with the main city."
                 )
+                console.print(f"\n[yellow]{msg}[/yellow]")
+                _write_run_log(run_log)
+                return Shortlist(market=market, deals=[], run_summary=msg)
 
         # Auto-populate Rentcast params from criteria when not already set.
         # Caps at 3 cities to stay within free-tier call limits (50 calls/month).

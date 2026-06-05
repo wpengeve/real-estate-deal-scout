@@ -69,8 +69,13 @@ _TOOL_DEF: dict = {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "Cities to include. When a metro area is mentioned, include the "
-                    "core city and suburbs. Example: 'Seattle metro' → "
+                    "Cities to include. CRITICAL: always include the main/parent city first, "
+                    "then any suburbs or neighborhoods mentioned. "
+                    "If the user writes 'Seattle(lake forest park, cedar park)' or "
+                    "'Seattle with lake forest park', ALWAYS put 'Seattle' first: "
+                    "['Seattle', 'Lake Forest Park', 'Cedar Park']. "
+                    "Never drop the main city just because suburbs are listed. "
+                    "For a metro area: 'Seattle metro' → "
                     "['Seattle', 'Bellevue', 'Kirkland', 'Redmond', 'Shoreline', "
                     "'Bothell', 'Kenmore', 'Mountlake Terrace', 'Lynnwood', 'Edmonds', "
                     "'Renton', 'Burien', 'Tukwila', 'Mercer Island', 'Issaquah', 'Sammamish']"

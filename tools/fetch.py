@@ -857,6 +857,7 @@ async def _scraperapi_autocomplete(city: str, client: httpx.AsyncClient) -> tupl
     Redfin blocks direct calls (403); ScraperAPI bypasses bot detection.
     Returns (city_id, path) or ('', '') on failure.
     """
+    import json as _json
     try:
         autocomplete_url = (
             f"{_REDFIN_AUTOCOMPLETE_URL}"
@@ -865,12 +866,19 @@ async def _scraperapi_autocomplete(city: str, client: httpx.AsyncClient) -> tupl
         resp = await client.get(
             "https://api.scraperapi.com/",
             params={"api_key": _SCRAPERAPI_KEY, "url": autocomplete_url},
+            timeout=30.0,
         )
         resp.raise_for_status()
-        data = resp.json()
-        results = (data.get("payload") or {}).get("resultList") or []
+        # Redfin prepends "{}&&" to prevent JSON hijacking — strip it before parsing.
+        text = re.sub(r"^\{\}&&", "", resp.text.lstrip())
+        data = _json.loads(text)
+        payload = data.get("payload") or {}
+        # Try both response shapes: legacy resultList and current sections[].rows[]
+        candidates: list[dict] = list(payload.get("resultList") or [])
+        for section in payload.get("sections") or []:
+            candidates.extend(section.get("rows") or [])
         city_result = next(
-            (r for r in results if str(r.get("id", "")).startswith("city_")),
+            (r for r in candidates if str(r.get("id", "")).startswith("city_")),
             None,
         )
         if city_result:
