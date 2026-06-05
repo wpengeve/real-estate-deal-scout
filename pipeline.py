@@ -208,6 +208,15 @@ async def run(
             dropped = before - len(analyzed)
             if dropped:
                 console.log(f"[dim]Primary suite filter: {dropped} without primary bedroom removed[/dim]")
+            if not analyzed:
+                msg = (
+                    "No listings with a confirmed primary suite were found. "
+                    "Most Redfin listings don't advertise room types explicitly — "
+                    "try removing the 'master bedroom' requirement and filtering manually from the report."
+                )
+                console.print(f"\n[yellow]{msg}[/yellow]")
+                _write_run_log(run_log)
+                return Shortlist(market=market, deals=[], run_summary=msg)
 
         # Post-analysis cap rate filter (rental only — skipped for primary residence)
         if config.criteria.min_cap_rate is not None and config.purpose != "primary":
@@ -222,10 +231,13 @@ async def run(
                 console.log(f"[dim]Cap rate filter: {dropped} below {config.criteria.min_cap_rate:.1%} removed[/dim]")
 
         if not analyzed:
-            console.print("\n[yellow]No listings met the minimum cap rate.[/yellow]")
-            console.print("  Tip: lower [bold]min_cap_rate[/bold] in config.yaml or set it to null")
+            msg = (
+                "No listings met your filters. "
+                "Try raising the max price, lowering the minimum cap rate, or broadening the city list."
+            )
+            console.print(f"\n[yellow]{msg}[/yellow]")
             _write_run_log(run_log)
-            return Shortlist(market=market, deals=[], run_summary="No listings met the minimum cap rate.")
+            return Shortlist(market=market, deals=[], run_summary=msg)
 
         # ── Stage 5: Flag risks ───────────────────────────────────────────────
         progress.update(task, description="[5/6] Flagging risks...")

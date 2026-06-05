@@ -22,8 +22,9 @@ fetch:
   # Add one Redfin search URL per area. Use the URL from your browser after
   # applying filters (beds, price, property type) on redfin.com.
   # Requires SCRAPERAPI_KEY in .env (free tier: 1,000 credits/month)
-  scraperapi_search_urls:
-    - "https://www.redfin.com/county/1935/WA/King-County/filter/min-beds=3,max-price=2250000,property-type=house"
+  scraperapi_search_urls: []
+  # URLs above are intentionally empty — pipeline auto-resolves from criteria.allowed_cities
+  # via resolve_city_urls(). This avoids stale hardcoded county IDs (Redfin changes them).
 
   # Rentcast — only used when data_source: rentcast
   # All fields below are auto-populated by the pipeline from criteria.allowed_cities.

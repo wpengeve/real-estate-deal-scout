@@ -158,11 +158,16 @@ def parse(html: str) -> ListingFeatures:
             pass
 
     # ── Primary suite ──────────────────────────────────────────────────────────
-    # Room type entries look like: "Room Type: Primary Bedroom"
-    if re.search(r"Room Type:\s*Primary Bed", html, re.I):
+    # Redfin embeds room data as double-escaped JSON: ROOMS_N_ROOMS_ROOM_TYPE → amenityValues.
+    # Match within a tight window (300 chars) so we don't confuse description text with room data.
+    _primary_suite_present = bool(re.search(
+        r'ROOMS_\d+_ROOMS_ROOM_TYPE.{0,300}(?:Primary Bedroom|Master Bedroom|Owner.{0,10}Suite)',
+        html, re.I | re.DOTALL,
+    ))
+    if _primary_suite_present:
         f.has_primary_suite = True
-    elif "Bathroom Information" in html or "Room 1 Information" in html:
-        # Features section present but no primary bedroom mentioned
+    elif "Room 1 Information" in html:
+        # Per-room breakdown is present but no Primary Bedroom in room types → confirmed absent.
         f.has_primary_suite = False
 
     # ── Garage ─────────────────────────────────────────────────────────────────

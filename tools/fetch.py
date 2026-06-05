@@ -936,8 +936,23 @@ async def _fetch_from_scraperapi(fetch_config: FetchConfig) -> list[RawListing]:
                     raise RuntimeError(
                         f"ScraperAPI timed out for {search_url}"
                     ) from e
+                # Guard: ScraperAPI returns HTML when the Redfin URL redirects
+                # (e.g. a stale county ID). resp.json() on HTML → cryptic JSONDecodeError.
+                body = resp.text.strip()
+                if not body.startswith("{") and not body.startswith("["):
+                    raise RuntimeError(
+                        f"ScraperAPI returned non-JSON for {search_url}. "
+                        "The Redfin URL may be outdated (Redfin changes region IDs). "
+                        "Clear scraperapi_search_urls in config.yaml so the pipeline "
+                        "auto-resolves fresh URLs from your city list."
+                    )
                 raw_json = resp.json()
-                _cache_set(search_url, raw_json)
+                # Only cache non-empty results — 0 listings is likely a transient
+                # ScraperAPI issue (rate/cache artifact) and should not be persisted.
+                if raw_json.get("listing"):
+                    _cache_set(search_url, raw_json)
+                else:
+                    logger.warning("ScraperAPI returned 0 listings for %s — skipping cache", search_url)
 
             listings = normalize_all(raw_json)
             logger.info("ScraperAPI: %d listings from %s", len(listings), search_url)

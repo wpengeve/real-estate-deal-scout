@@ -59,9 +59,10 @@ _TOOL_DEF: dict = {
             "min_baths": {
                 "type": "number",
                 "description": (
-                    "Minimum number of bathrooms (e.g. 2 or 2.5). Use 2.0 when the user "
-                    "asks for a primary/master suite with an en-suite bathroom, or says "
-                    "'at least 2 baths'. Omit if not mentioned."
+                    "Minimum number of bathrooms (e.g. 2 or 2.5). Only set when the user "
+                    "explicitly mentions a bathroom count, e.g. 'at least 2 baths' or "
+                    "'2.5 bathrooms'. Do NOT infer from 'master bedroom' or 'primary suite' — "
+                    "use require_primary_suite for that. Omit if not mentioned."
                 ),
             },
             "allowed_cities": {
