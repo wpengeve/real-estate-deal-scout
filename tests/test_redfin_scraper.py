@@ -12,6 +12,7 @@ PRIMARY_SUITE_HTML = """
 <li class="entryItem ">Room Level: Upper</li></ul>
 <ul class="bulletList"><li class="propertyDetailsHeader"><span>Bathroom Information</span></li>
 <li class="entryItem "># of Full Baths (Total): 2</li></ul>
+<script>{\\"ROOMS_6_ROOMS_ROOM_TYPE\\":{\\"amenityGroupTitle\\":\\"Room 6 Information\\",\\"amenityValues\\":[\\"Primary Bedroom\\"]}}</script>
 """
 
 NO_PRIMARY_SUITE_HTML = """
