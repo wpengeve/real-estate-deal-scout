@@ -6,6 +6,8 @@ An agentic pipeline that surfaces high-conviction real estate investment opportu
 fetch → screen → enrich → analyze → flag risks → rank + narrate
 ```
 
+📐 **New here?** Read the [Architecture & Code Guide](ARCHITECTURE.md) for a plain-English tour of how the whole thing fits together (there's also a [browser version](ARCHITECTURE.html) with a glossary).
+
 **Vision:** Evolving from a personal CLI tool into a multi-user real estate investment agent — any user describes their financial situation and goals and gets a personalized ranked shortlist with AI narratives computed for *their* specific numbers.
 
 ## Features
