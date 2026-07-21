@@ -26,6 +26,9 @@ outputs/
 # Downloaded listing CSVs (real data, not for committing)
 data/*.csv
 
+# SQLite database (runtime data: users, sessions, run history)
+data/*.db
+
 # Claude Code local settings
 .claude/
 
