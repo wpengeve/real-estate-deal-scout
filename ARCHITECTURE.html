@@ -26,13 +26,11 @@
   header.hero{
     background:linear-gradient(135deg,var(--panel),var(--panel2));
     border:1px solid var(--border); border-radius:16px; padding:36px 32px;
-    box-shadow:var(--shadow); margin-bottom:32px;
+    box-shadow:var(--shadow); margin-bottom:24px;
   }
   .hero h1{margin:0 0 8px; font-size:30px; letter-spacing:-.02em}
   .hero p{margin:0; color:var(--muted); font-size:17px}
-  .flow{
-    display:flex; flex-wrap:wrap; gap:8px; margin-top:22px;
-  }
+  .flow{display:flex; flex-wrap:wrap; gap:8px; margin-top:22px}
   .flow span{
     background:var(--code); border:1px solid var(--border); color:var(--accent);
     padding:6px 12px; border-radius:8px; font:13px ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -60,6 +58,9 @@
     padding:18px 20px; margin:14px 0; box-shadow:var(--shadow);
   }
   .principle{border-left:3px solid var(--accent)}
+  .example{border-left:3px solid var(--accent2)}
+  .example ol{margin:8px 0 0; padding-left:22px}
+  .example li{margin:6px 0}
   table{width:100%; border-collapse:collapse; margin:14px 0; font-size:14.5px}
   th,td{text-align:left; padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:top}
   th{color:var(--muted); font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:.04em}
@@ -94,6 +95,12 @@
     background:rgba(74,168,255,.08); border:1px solid rgba(74,168,255,.25);
     border-radius:10px; padding:14px 18px; margin:16px 0; font-size:14.5px;
   }
+  .glossary dt{font-weight:600; margin-top:12px; color:var(--accent2)}
+  .glossary dd{margin:2px 0 0; color:var(--ink)}
+  .glossary .grouplabel{
+    margin:22px 0 4px; font-size:13px; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--muted); font-weight:600;
+  }
   footer{margin-top:56px; color:var(--muted); font-size:13px; text-align:center}
   .stage-tag{
     display:inline-block; background:var(--code); border:1px solid var(--border);
@@ -113,9 +120,15 @@
     </div>
   </header>
 
+  <div class="note">
+    <strong>How to read this:</strong> Sections 1–2 give the big picture in plain language (start here).
+    Section 3 maps every file, Section 4 explains the design decisions, 5–8 are reference.
+    <strong>Section 10 is a glossary</strong> — if any term is unfamiliar, jump there first.
+  </div>
+
   <nav class="toc">
     <a href="#s1"><span class="n">1</span>What this project is</a>
-    <a href="#s2"><span class="n">2</span>The mental model</a>
+    <a href="#s2"><span class="n">2</span>The mental model + example</a>
     <a href="#s3"><span class="n">3</span>Directory map</a>
     <a href="#s4"><span class="n">4</span>How the code is written</a>
     <a href="#s5"><span class="n">5</span>The two entry points</a>
@@ -123,34 +136,50 @@
     <a href="#s7"><span class="n">7</span>Configuration &amp; ranking</a>
     <a href="#s8"><span class="n">8</span>Testing</a>
     <a href="#s9"><span class="n">9</span>Where it's heading</a>
+    <a href="#s10"><span class="n">10</span>Glossary (plain English)</a>
   </nav>
 
   <h2 id="s1"><span class="num">1.</span> What this project is</h2>
-  <p>Real Estate Deal Scout is an <strong>agentic pipeline</strong> that surfaces high-conviction
-  real estate investment deals. You describe what you want (plain English or <code>config.yaml</code>);
-  the system fetches live listings, screens them, enriches each with neighborhood data (rent, schools,
-  solar, zoning, tax assessment), runs <strong>personalized</strong> financial analysis (cap rate,
-  cash-on-cash, cash flow computed for <em>your</em> down payment and rate), flags risks, and uses an
-  LLM to <strong>rank and narrate</strong> the top deals. It ships as both a CLI (<code>scout.py</code>)
-  and a web app (<code>app.py</code>, FastAPI).</p>
+  <p>Real Estate Deal Scout finds good real estate investment deals for you and explains <em>why</em>
+  they're good. You tell it what you're looking for (plain English or a settings file); it pulls real
+  listings off the market, throws out the ones that don't fit, looks up extra facts about each remaining
+  home (likely rent, nearby schools, sunlight, zoning, tax value), does the investment math
+  <strong>using your own budget and loan terms</strong>, flags anything risky, and finally has an AI write
+  a short ranked pitch for the best few. It runs from the command line (<code>scout.py</code>) or as a
+  website (<code>app.py</code>).</p>
   <div class="note">
-    <strong>The core idea:</strong> Python does the math, the LLM only ranks and explains.
-    Every number a user sees comes from deterministic code — the LLM never invents financials.
+    <strong>The core idea:</strong> the Python code does all the math; the AI only ranks the results and
+    writes the explanations. Every number you see is computed by code — the AI never makes up a figure.
   </div>
 
   <h2 id="s2"><span class="num">2.</span> The mental model — one pipeline, six stages</h2>
-  <p class="lead">Everything revolves around this flow. Stages 1–5 are deterministic Python;
-  stage 6 is the only place an LLM is involved, and even then only for ordering and prose.</p>
+  <p class="lead">"Pipeline" just means an assembly line: data enters one end, passes through a fixed
+  sequence of steps, and comes out finished. Everything revolves around this line. Stages 1–5 are plain,
+  predictable Python; stage 6 is the only step that uses AI — and only to decide the order and write the words.</p>
   <table>
-    <tr><th>#</th><th>Stage</th><th>Input → Output</th><th>Where</th></tr>
-    <tr><td>1</td><td><strong>Fetch</strong></td><td>config → <code>list[RawListing]</code></td><td><code>tools/fetch.py</code></td></tr>
-    <tr><td>2</td><td><strong>Screen</strong></td><td>listings + criteria → filtered</td><td><code>tools/screen.py</code></td></tr>
-    <tr><td>3</td><td><strong>Enrich</strong></td><td>+ rent, walk score, schools, solar, tax/zoning</td><td><code>tools/enrich.py</code></td></tr>
-    <tr><td>4</td><td><strong>Analyze</strong></td><td>cap rate, CoC, cash flow, zoning, appreciation</td><td><code>tools/analyze.py</code></td></tr>
-    <tr><td>5</td><td><strong>Flag risks</strong></td><td>flood, seismic, wildfire, DOM outliers</td><td><code>tools/risks.py</code></td></tr>
-    <tr><td>6</td><td><strong>Rank + narrate</strong></td><td>flagged → <code>Shortlist</code> w/ thesis</td><td><code>tools/*_ranker.py</code></td></tr>
+    <tr><th>#</th><th>Stage</th><th>What goes in → comes out</th><th>Where</th></tr>
+    <tr><td>1</td><td><strong>Fetch</strong></td><td>your settings → a list of raw listings</td><td><code>tools/fetch.py</code></td></tr>
+    <tr><td>2</td><td><strong>Screen</strong></td><td>listings + criteria → only the ones that qualify</td><td><code>tools/screen.py</code></td></tr>
+    <tr><td>3</td><td><strong>Enrich</strong></td><td>+ extra data (rent, schools, solar, tax/zoning)</td><td><code>tools/enrich.py</code></td></tr>
+    <tr><td>4</td><td><strong>Analyze</strong></td><td>+ the investment math (cap rate, cash flow, upside)</td><td><code>tools/analyze.py</code></td></tr>
+    <tr><td>5</td><td><strong>Flag risks</strong></td><td>+ warnings (flood, earthquake, wildfire, stale listing)</td><td><code>tools/risks.py</code></td></tr>
+    <tr><td>6</td><td><strong>Rank + narrate</strong></td><td>the final ranked shortlist, each with a written pitch</td><td><code>tools/*_ranker.py</code></td></tr>
   </table>
-  <p><code>pipeline.py</code> is the orchestrator that wires these six stages together.</p>
+  <p><code>pipeline.py</code> is the "factory manager" that runs these six stages in order.</p>
+
+  <div class="card example">
+    <h3>A concrete example — follow one house through the line</h3>
+    <p style="margin:4px 0">Say you tell it: <em>"3-bed rentals under $900k in Seattle, 25% down."</em></p>
+    <ol>
+      <li><strong>Fetch</strong> pulls ~200 Seattle listings from Rentcast.</li>
+      <li><strong>Screen</strong> drops anything over $900k, under 3 beds, or outside Seattle → ~40 left.</li>
+      <li><strong>Enrich</strong> looks up, for each of the 40: likely rent (HUD), nearby schools + test scores, rooftop sun hours (NREL), zoning + tax value (county records).</li>
+      <li><strong>Analyze</strong> computes, using your 25% down: rents for ~$3,200/mo → cap rate 4.1%, cash-on-cash 6.3%, cash flow +$180/mo.</li>
+      <li><strong>Flag risks</strong> notices it sits in a FEMA flood zone → adds a MEDIUM risk flag.</li>
+      <li><strong>Rank + narrate</strong> sorts the 40, and the AI writes: <em>"#1 — strong 4.1% cap rate and rare positive cash flow for Seattle; note the flood-zone insurance cost."</em></li>
+    </ol>
+    <p style="margin:10px 0 0">That flow is the whole product.</p>
+  </div>
 
   <h2 id="s3"><span class="num">3.</span> Directory map — what each file does</h2>
   <p class="lead">Click each group to expand.</p>
@@ -160,141 +189,175 @@
     <div class="details-body">
       <table>
         <tr><th>File</th><th>Role</th></tr>
-        <tr><td><code>scout.py</code></td><td><strong>CLI entry point.</strong> Args (<code>--chat</code>, <code>--from-analyzed</code>, <code>--market</code>), loads config, runs pipeline, prints a <code>rich</code> shortlist.</td></tr>
-        <tr><td><code>app.py</code></td><td><strong>Web entry point (FastAPI).</strong> Chat UI, magic-link auth, background runs, HTML report serving.</td></tr>
-        <tr><td><code>pipeline.py</code></td><td><strong>The orchestrator.</strong> <code>run()</code> executes all six stages; also <code>run_from_analyzed()</code>, <code>run_single_property()</code>, <code>run_multi_property()</code>.</td></tr>
-        <tr><td><code>db.py</code></td><td><strong>SQLite persistence</strong> (SQLAlchemy): users, auth tokens, sessions, chat sessions, report runs.</td></tr>
-        <tr><td><code>config.yaml</code></td><td>Criteria, financial assumptions, data source, ranker choice.</td></tr>
-        <tr><td><code>CLAUDE.md</code> / <code>ROLES.md</code></td><td>Autonomous decision policy &amp; role ownership.</td></tr>
+        <tr><td><code>scout.py</code></td><td><strong>Command-line entry point.</strong> Reads your options, runs the pipeline, prints results to the terminal.</td></tr>
+        <tr><td><code>app.py</code></td><td><strong>Website entry point (FastAPI).</strong> Chat interface, login, background runs, report viewing.</td></tr>
+        <tr><td><code>pipeline.py</code></td><td><strong>The orchestrator</strong> — runs the six stages in order. Also variants for re-running old results and single-property analysis.</td></tr>
+        <tr><td><code>db.py</code></td><td><strong>Database code</strong> (SQLite): users, logins, sessions, past report runs.</td></tr>
+        <tr><td><code>config.yaml</code></td><td>Your settings: what to search for, budget/loan terms, which AI to use.</td></tr>
+        <tr><td><code>CLAUDE.md</code> / <code>ROLES.md</code></td><td>Rules for adding data sources &amp; who owns which decisions.</td></tr>
       </table>
     </div>
   </details>
 
   <details>
-    <summary>tools/ — the contract &amp; building blocks</summary>
+    <summary>tools/ — the building blocks</summary>
     <div class="details-body">
-      <p><span class="stage-tag">contract</span><strong>models.py</strong> — Pydantic schemas for every stage's I/O. The spine of the whole project. Key models: <code>InvestmentConfig</code>, <code>RawListing</code>, <code>EnrichResult</code>, <code>AnalyzedListing</code>, <code>FlaggedListing</code>, <code>DealNarrative</code>, <code>Shortlist</code>.</p>
+      <p><span class="stage-tag">dictionary</span><strong>models.py</strong> — the definitions of every kind of data the pipeline passes around (a "listing," an "analyzed deal," the final "shortlist"). The project's shared vocabulary — read this first. Key ones: <code>InvestmentConfig</code>, <code>RawListing</code>, <code>Shortlist</code>.</p>
       <table>
-        <tr><th>Stage</th><th>Modules</th></tr>
-        <tr><td><span class="stage-tag">1 fetch</span></td><td><code>fetch.py</code> (4 backends: fixtures/CSV/ScraperAPI/Rentcast), <code>scraperapi_normalizer.py</code>, <code>geocode.py</code>, <code>single_property.py</code></td></tr>
-        <tr><td><span class="stage-tag">2 screen</span></td><td><code>screen.py</code> — pure filtering, machine-readable reason codes</td></tr>
-        <tr><td><span class="stage-tag">3 enrich</span></td><td><code>enrich.py</code> (orchestrator), <code>crosswalk.py</code> (ZIP→county), <code>assessor.py</code> (tax/zoning), <code>schools.py</code>, <code>solar.py</code>, <code>redfin_scraper.py</code></td></tr>
-        <tr><td><span class="stage-tag">4 analyze</span></td><td><code>analyze.py</code> (financial math), <code>zoning_potential.py</code> (ADU/DADU/HB1110), <code>appreciation.py</code> (GRM signals)</td></tr>
-        <tr><td><span class="stage-tag">5 risks</span></td><td><code>risks.py</code> — FEMA flood, USGS seismic, wildfire, DOM outliers</td></tr>
-        <tr><td><span class="stage-tag">6 rank</span></td><td><code>mock_ranker.py</code> (offline), <code>ollama_ranker.py</code> (local LLM), Claude ranking in pipeline</td></tr>
-        <tr><td><span class="stage-tag">chat/out</span></td><td><code>chat_intake.py</code> (CLI), <code>web_chat.py</code> (web + Q&amp;A), <code>report.py</code> (HTML report w/ Leaflet maps)</td></tr>
+        <tr><th>Stage</th><th>Files</th></tr>
+        <tr><td><span class="stage-tag">1 fetch</span></td><td><code>fetch.py</code> (4 sources: fixtures/CSV/ScraperAPI/Rentcast), <code>scraperapi_normalizer.py</code> (tidy the messy data), <code>geocode.py</code> (address→coordinates), <code>single_property.py</code> (one house from a link)</td></tr>
+        <tr><td><span class="stage-tag">2 screen</span></td><td><code>screen.py</code> — keep only matching listings, record why each reject was dropped</td></tr>
+        <tr><td><span class="stage-tag">3 enrich</span></td><td><code>enrich.py</code> (coordinator), <code>crosswalk.py</code> (ZIP→county), <code>assessor.py</code> (tax value + zoning), <code>schools.py</code>, <code>solar.py</code>, <code>redfin_scraper.py</code> (page extras)</td></tr>
+        <tr><td><span class="stage-tag">4 analyze</span></td><td><code>analyze.py</code> (the money math), <code>zoning_potential.py</code> (backyard cottage / lot-split / duplex upside), <code>appreciation.py</code> (value-growth signals)</td></tr>
+        <tr><td><span class="stage-tag">5 risks</span></td><td><code>risks.py</code> — flood, earthquake, wildfire, stale-listing warnings</td></tr>
+        <tr><td><span class="stage-tag">6 rank</span></td><td><code>mock_ranker.py</code> (no AI, offline default), <code>ollama_ranker.py</code> (AI on your computer), Claude ranking in pipeline</td></tr>
+        <tr><td><span class="stage-tag">chat/out</span></td><td><code>chat_intake.py</code> (CLI chat), <code>web_chat.py</code> (web chat + follow-up Q&amp;A), <code>report.py</code> (interactive HTML report)</td></tr>
       </table>
     </div>
   </details>
 
   <details>
-    <summary>Supporting directories</summary>
+    <summary>Supporting folders</summary>
     <div class="details-body">
       <table>
-        <tr><td><code>tests/</code></td><td>~217 pytest tests — one per tool + pipeline integration</td></tr>
-        <tr><td><code>fixtures/</code></td><td>Sample listings for offline mode</td></tr>
-        <tr><td><code>data/</code></td><td>Redfin CSV exports + <code>scout.db</code></td></tr>
-        <tr><td><code>outputs/</code></td><td>Per-run JSON + HTML reports (pruned after 7 days)</td></tr>
-        <tr><td><code>templates/</code></td><td>Jinja2 templates for the web UI</td></tr>
+        <tr><td><code>tests/</code></td><td>~298 automated tests — roughly one file per building block + a full pipeline test</td></tr>
+        <tr><td><code>fixtures/</code></td><td>Fake sample listings for offline testing</td></tr>
+        <tr><td><code>data/</code></td><td>Downloaded listing files + the <code>scout.db</code> database</td></tr>
+        <tr><td><code>outputs/</code></td><td>Results of each run (auto-deleted after 7 days)</td></tr>
+        <tr><td><code>templates/</code></td><td>HTML page templates for the website</td></tr>
       </table>
     </div>
   </details>
 
   <h2 id="s4"><span class="num">4.</span> How the code is written — the design principles</h2>
-  <p class="lead">Five ideas that recur everywhere. Understanding these is understanding the base of the project.</p>
+  <p class="lead">Six ideas that recur everywhere. Understanding these <em>is</em> understanding the base of the project.</p>
 
-  <div class="card principle"><h3>4.1 &nbsp;Pydantic models are the contract</h3>
-    Every stage takes a typed model in and returns one out (<code>models.py</code>). Data shape is validated
-    at every boundary, config errors surface early, and any intermediate result serializes to JSON — which
-    is how <code>--from-analyzed</code> re-runs ranking without re-fetching.</div>
+  <div class="card principle"><h3>4.1 &nbsp;One agreed-upon shape for every piece of data</h3>
+    Every stage receives a well-defined data object and returns another (defined in <code>models.py</code>,
+    using a library called <strong>Pydantic</strong>). Because the shape is checked at every step, bad data
+    or a typo in your settings is caught immediately with a clear error — instead of crashing halfway. It also
+    lets any intermediate result be saved and reloaded (how "re-run without re-fetching" works).</div>
 
-  <div class="card principle"><h3>4.2 &nbsp;Graceful degradation is non-negotiable</h3>
-    Every external call <strong>returns <code>None</code>/empty and logs</strong> rather than raising. A missing
-    API key never crashes the pipeline — you get partial enrichment. Codified as policy in <code>CLAUDE.md</code>.
-    It's why the tool works end-to-end with zero paid keys.</div>
+  <div class="card principle"><h3>4.2 &nbsp;Never crash on missing data</h3>
+    Every call to an outside service <strong>quietly returns "nothing" and logs a note</strong> if it fails or
+    a key is missing, instead of stopping. Worst case, a home is missing its school rating — the run still
+    finishes. This is why the tool works even with zero paid API keys.</div>
 
-  <div class="card principle"><h3>4.3 &nbsp;The LLM never touches the numbers</h3>
-    Rankers receive already-computed financials and only <strong>order deals + write prose</strong>. Hallucinated
-    addresses are rejected; every metric comes from <code>analyze.py</code>. This is the project's integrity guarantee.</div>
+  <div class="card principle"><h3>4.3 &nbsp;The AI never touches the numbers</h3>
+    The rankers get the already-computed figures and only <strong>put deals in order and write the explanation</strong>.
+    If the AI invents an address that isn't in the data, it's thrown out. Every dollar figure comes from
+    <code>analyze.py</code>. This is the project's core trust guarantee.</div>
 
-  <div class="card principle"><h3>4.4 &nbsp;Aggressive caching to protect API budgets</h3>
-    In-process dict caches (geocode, crosswalk, solar, schools, HUD) for a run's lifetime, plus a file-based
-    TTL cache (<code>data/scraperapi_cache/</code>) so re-runs don't burn paid credits.</div>
+  <div class="card principle"><h3>4.4 &nbsp;Remember answers to avoid repeat lookups (caching)</h3>
+    The tool saves answers so it doesn't ask twice: short-term memory during a run (coordinates, county
+    lookups, sunlight), plus a saved-to-disk cache for the <em>paid</em> services so re-running doesn't cost money again.</div>
 
-  <div class="card principle"><h3>4.5 &nbsp;Data-sourcing preference order</h3>
-    From <code>CLAUDE.md</code>: <em>already-in-a-page-we-fetch → free public API → free-tier-with-key → paid
-    (needs approval)</em>. Paid deps are flagged with a <code>TODO</code>, never integrated autonomously. Running
-    cost stays near zero by design.</div>
+  <div class="card principle"><h3>4.5 &nbsp;A ranked preference for where data comes from</h3>
+    From <code>CLAUDE.md</code>: <em>use something we already downloaded → a free public source → a free
+    source that needs a key → a paid service (only with approval)</em>. Keeps running cost near zero on purpose.</div>
 
-  <div class="card principle"><h3>4.6 &nbsp;Async where it pays, sync where it doesn't</h3>
-    Enrichment is <strong>async</strong> (<code>httpx.AsyncClient</code>, <code>asyncio.gather</code>, semaphores,
-    shared client) because it fans out many calls per listing. Risk lookups are <strong>sync</strong> — a
-    deliberate MVP simplification.</div>
+  <div class="card principle"><h3>4.6 &nbsp;Do many lookups at once, simple where it doesn't matter</h3>
+    Enrichment fires off many web lookups <strong>simultaneously</strong> (that's "async") because each home
+    needs several and one-by-one would be slow. Risk lookups are done the simple one-at-a-time way — a
+    deliberate shortcut, not an oversight.</div>
 
   <h2 id="s5"><span class="num">5.</span> The two entry points</h2>
-  <h3>CLI — scout.py</h3>
-  <pre>python scout.py                 # run from config.yaml
-python scout.py --chat          # describe criteria in plain English
+  <h3>Command line — scout.py</h3>
+  <pre>python scout.py                 # run using the settings in config.yaml
+python scout.py --chat          # describe what you want in plain English
 python scout.py --market "Portland, OR" --max-shortlist 10
-python scout.py --from-analyzed outputs/…_analyzed.json   # skip slow enrichment</pre>
-  <p>Loads/validates config → optional chat intake → <code>pipeline.run()</code> → prints a <code>rich</code>
-  panel per deal (price, cap rate, cash flow, zoning stars, narrative).</p>
+python scout.py --from-analyzed outputs/…_analyzed.json   # reuse saved data, skip the slow lookups</pre>
+  <p>Loads your settings → optional chat → runs the pipeline → prints one nicely formatted card per deal.</p>
 
-  <h3>Web — app.py (FastAPI)</h3>
-  <p>A full web app — more built-out than the roadmap docs suggest:</p>
+  <h3>Website — app.py (FastAPI)</h3>
+  <p>A full web app:</p>
   <ul>
-    <li><strong>Chat UI</strong> (<code>/</code>) backed by <code>web_chat.ChatSession</code></li>
-    <li><strong>Magic-link auth</strong> — <code>/api/auth/request</code> → token → <code>/auth/verify</code> → session cookie</li>
-    <li><strong>Background runs</strong> — <code>POST /api/run</code> starts, <code>GET /api/run/{id}</code> polls status</li>
-    <li><strong>Report serving</strong> — <code>GET /reports/{run_id}</code> returns the generated HTML</li>
-    <li><strong>History</strong> — logged-in users see past runs</li>
+    <li><strong>Chat interface</strong> at <code>/</code> — describe what you want in the browser</li>
+    <li><strong>Login by "magic link"</strong> — you get an emailed link; clicking it logs you in (no password)</li>
+    <li><strong>Background runs</strong> — the site starts a run and shows a live progress bar</li>
+    <li><strong>Reports</strong> — each finished run gets its own shareable page (<code>/reports/{id}</code>)</li>
+    <li><strong>History</strong> — logged-in users see their past runs</li>
   </ul>
-  <p>Live runs &amp; chat sessions live in in-memory dicts; <strong>SQLite (<code>db.py</code>)</strong> holds durable
-  users, sessions, and run records. Reports persist on disk, pruned after 7 days on startup.</p>
+  <p>Live runs and chats are held in memory; users, logins, and history are saved in a <strong>SQLite database</strong>
+  (<code>db.py</code>). Report pages are kept on disk and cleaned up after 7 days.</p>
 
   <h2 id="s6"><span class="num">6.</span> External data sources</h2>
-  <p class="lead">Only ScraperAPI and Anthropic cost money; everything else is free or free-tier, and all degrade gracefully.</p>
+  <p class="lead">Only ScraperAPI and Anthropic cost money; everything else is free or free-tier, and every one degrades gracefully if its key is missing.</p>
   <table>
     <tr><th>Source</th><th>Provides</th><th>Key</th><th>Cost</th></tr>
     <tr><td>Redfin (CSV / scrape)</td><td>Listings, page features, walk score</td><td>—</td><td><span class="pill free">free</span></td></tr>
-    <tr><td>ScraperAPI</td><td>Redfin proxy (avoids blocks)</td><td><code>SCRAPERAPI_KEY</code></td><td><span class="pill paid">paid</span></td></tr>
-    <tr><td>Rentcast</td><td>Live for-sale listings (multi-market)</td><td><code>RENTCAST_API_KEY</code></td><td><span class="pill free">free tier</span></td></tr>
-    <tr><td>HUD FMR</td><td>Fair Market Rent by county</td><td><code>HUD_API_KEY</code></td><td><span class="pill free">free</span></td></tr>
-    <tr><td>HUD crosswalk + Census</td><td>ZIP → county → FIPS</td><td><code>HUD_API_KEY</code></td><td><span class="pill free">free</span></td></tr>
-    <tr><td>County ArcGIS (KC/Snoho/Pierce)</td><td>Tax assessment, zoning</td><td>—</td><td><span class="pill free">free</span></td></tr>
-    <tr><td>NCES EDGE + WA OSPI</td><td>Schools + proficiency</td><td>—</td><td><span class="pill free">free</span></td></tr>
-    <tr><td>NREL</td><td>Solar irradiance (GHI)</td><td><code>NREL_API_KEY</code></td><td><span class="pill free">free</span></td></tr>
+    <tr><td>ScraperAPI</td><td>Pulls live Redfin data (avoids blocks)</td><td><code>SCRAPERAPI_KEY</code></td><td><span class="pill paid">paid</span></td></tr>
+    <tr><td>Rentcast</td><td>Live for-sale listings (any US market)</td><td><code>RENTCAST_API_KEY</code></td><td><span class="pill free">free tier</span></td></tr>
+    <tr><td>HUD FMR</td><td>Typical rent estimates by county</td><td><code>HUD_API_KEY</code></td><td><span class="pill free">free</span></td></tr>
+    <tr><td>HUD crosswalk + Census</td><td>ZIP → county lookup</td><td><code>HUD_API_KEY</code></td><td><span class="pill free">free</span></td></tr>
+    <tr><td>County records (KC/Snoho/Pierce)</td><td>Tax value, zoning</td><td>—</td><td><span class="pill free">free</span></td></tr>
+    <tr><td>NCES + WA OSPI</td><td>Schools + test scores</td><td>—</td><td><span class="pill free">free</span></td></tr>
+    <tr><td>NREL</td><td>Rooftop sunlight</td><td><code>NREL_API_KEY</code></td><td><span class="pill free">free</span></td></tr>
     <tr><td>Walk Score</td><td>Walkability</td><td><code>WALKSCORE_API_KEY</code></td><td><span class="pill free">free tier</span></td></tr>
-    <tr><td>Google Maps</td><td>Geocoding</td><td><code>GOOGLE_MAPS_KEY</code></td><td><span class="pill free">free tier</span></td></tr>
-    <tr><td>FEMA / USGS / ArcGIS</td><td>Flood, seismic, wildfire</td><td>—</td><td><span class="pill free">free</span></td></tr>
-    <tr><td>Anthropic</td><td>Chat intake + Claude ranking</td><td><code>ANTHROPIC_API_KEY</code></td><td><span class="pill paid">paid</span></td></tr>
-    <tr><td>Ollama</td><td>Local LLM ranking</td><td>local</td><td><span class="pill free">free</span></td></tr>
+    <tr><td>Google Maps</td><td>Address → coordinates</td><td><code>GOOGLE_MAPS_KEY</code></td><td><span class="pill free">free tier</span></td></tr>
+    <tr><td>FEMA / USGS</td><td>Flood, earthquake, wildfire</td><td>—</td><td><span class="pill free">free</span></td></tr>
+    <tr><td>Anthropic (Claude)</td><td>Chat + ranking</td><td><code>ANTHROPIC_API_KEY</code></td><td><span class="pill paid">paid</span></td></tr>
+    <tr><td>Ollama</td><td>AI ranking on your own computer</td><td>local</td><td><span class="pill free">free</span></td></tr>
   </table>
 
   <h2 id="s7"><span class="num">7.</span> Configuration &amp; ranking</h2>
-  <p><code>config.yaml</code> drives a run without touching code. Key knobs:</p>
+  <p><code>config.yaml</code> controls a run without touching code. Key settings:</p>
   <ul>
-    <li><code>fetch.data_source</code> — <code>fixtures | csv | redfin | scraperapi | rentcast</code></li>
-    <li><code>criteria.*</code> — price, beds, DOM, HOA, home types, <code>allowed_cities</code> radius filter</li>
-    <li><code>financial_assumptions.*</code> — down payment %, loan rate, vacancy, mgmt fee (these personalize every metric)</li>
-    <li><code>output.ranker</code> — <code>mock</code> (offline) | <code>ollama</code> (local) | <code>claude</code> (best)</li>
-    <li><code>purpose</code> — <code>rental</code> (cap rate / CoC) vs <code>primary</code> (PITI-only)</li>
+    <li><code>fetch.data_source</code> — where listings come from (<code>fixtures | csv | redfin | scraperapi | rentcast</code>)</li>
+    <li><code>criteria.*</code> — price, beds, HOA, home types, which cities count</li>
+    <li><code>financial_assumptions.*</code> — your down payment %, loan rate, vacancy (these make every number personal to <em>you</em>)</li>
+    <li><code>output.ranker</code> — <code>mock</code> (offline) / <code>ollama</code> (local AI) / <code>claude</code> (best)</li>
+    <li><code>purpose</code> — <code>rental</code> (investment math) vs <code>primary</code> (you'll live there, so mortgage-only)</li>
   </ul>
-  <div class="note"><strong>Ranker trade-off:</strong> mock is instant &amp; free but crude; ollama is free but
-  ranks poorly; claude is the quality target (needs the API key — the current top TODO).</div>
+  <div class="note"><strong>Ranker trade-off:</strong> <code>mock</code> is instant &amp; free but crude;
+  <code>ollama</code> is free but ranks poorly; <code>claude</code> is the quality option (needs the paid key —
+  and is what the project runs today).</div>
 
   <h2 id="s8"><span class="num">8.</span> Testing</h2>
-  <p><code>pytest</code>, ~217 tests, one file per tool plus <code>test_pipeline.py</code> for integration. External
-  APIs are mocked. Per <code>ROLES.md</code>, QA is always-on: the full suite must pass before every commit.</p>
+  <p>The project has <strong>~298 automated tests</strong> (run with <code>pytest</code>) — roughly one test file per
+  building block, plus an end-to-end test of the whole pipeline. Outside services are faked during tests so they run
+  fast and offline. Policy: the full suite must pass before every commit, and new code brings its own tests.</p>
 
   <h2 id="s9"><span class="num">9.</span> Where the project is heading</h2>
   <table>
     <tr><th>Phase</th><th>Goal</th><th>Status</th></tr>
-    <tr><td>Phase 1</td><td>Anyone can use it (live API, chat intake, web wrapper)</td><td>Rentcast ✓, chat ✓, web ✓</td></tr>
-    <tr><td>Phase 2</td><td>Multi-market + accounts</td><td>Auth &amp; DB schema already in <code>db.py</code></td></tr>
-    <tr><td>Phase 3</td><td>Retention — saved-search re-runs, email alerts, feedback loop</td><td>Planned</td></tr>
+    <tr><td>Phase 1</td><td>Anyone can use it (live listings, plain-English intake, website)</td><td>Essentially done — remaining: deploy to a public host</td></tr>
+    <tr><td>Phase 2</td><td>Multi-market + accounts</td><td>Mostly done — login, accounts, history already in <code>db.py</code></td></tr>
+    <tr><td>Phase 3</td><td>Keep users coming back (auto re-runs, email alerts, feedback loop)</td><td>Not started</td></tr>
   </table>
   <p>See <code>TODOS.md</code> for the full roadmap and <code>PROGRESS.md</code> for the session log.</p>
+
+  <h2 id="s10"><span class="num">10.</span> Glossary (plain English)</h2>
+  <div class="glossary">
+    <div class="grouplabel">Real-estate / finance</div>
+    <dl>
+      <dt>Cap rate</dt><dd>A home's yearly rental profit (before mortgage) ÷ its price. Higher = better return. Seattle homes typically run a low 2–4%.</dd>
+      <dt>Cash-on-cash (CoC)</dt><dd>Yearly cash profit ÷ the actual cash you put in (down payment + closing costs). Return on <em>your</em> money.</dd>
+      <dt>Cash flow</dt><dd>Money left each month after rent pays the mortgage and expenses. Positive = the property pays you; negative = you feed it.</dd>
+      <dt>NOI (net operating income)</dt><dd>Yearly rent minus running costs (management, maintenance, insurance, taxes), <em>not</em> counting the mortgage.</dd>
+      <dt>PITI</dt><dd>A mortgage payment's four parts: Principal, Interest, Taxes, Insurance. Used in "primary residence" mode.</dd>
+      <dt>GRM (gross rent multiplier)</dt><dd>Price ÷ yearly rent; a quick "expensive relative to rent?" gauge. Also called price-to-rent.</dd>
+      <dt>DOM (days on market)</dt><dd>How long a listing has been for sale. A very high number can signal a problem — or an opportunity.</dd>
+      <dt>ADU / DADU</dt><dd>A second small home on the same lot: an Accessory Dwelling Unit (e.g. basement apartment) or <em>Detached</em> ADU (backyard cottage). Extra rental income.</dd>
+      <dt>HB 1110</dt><dd>A 2023 Washington law letting more lots build duplexes/multiplexes.</dd>
+      <dt>Zoning</dt><dd>Local rules for what can be built on a lot. Determines ADU/duplex upside.</dd>
+      <dt>Assessed value</dt><dd>The county's official value of a property for tax purposes.</dd>
+    </dl>
+    <div class="grouplabel">Technical</div>
+    <dl>
+      <dt>LLM / AI model</dt><dd>A large language model like Claude; here it only ranks and writes.</dd>
+      <dt>Pipeline</dt><dd>A fixed sequence of processing steps (the six stages).</dd>
+      <dt>Pydantic</dt><dd>A Python library that defines and validates data shapes (see §4.1).</dd>
+      <dt>Async</dt><dd>Doing many slow web lookups at the same time instead of one after another.</dd>
+      <dt>Cache</dt><dd>Remembered answers, so the same lookup isn't repeated (see §4.4).</dd>
+      <dt>Geocoding</dt><dd>Converting a street address into map coordinates (latitude/longitude).</dd>
+      <dt>FIPS</dt><dd>A standard numeric code identifying a US county.</dd>
+      <dt>GHI</dt><dd>Global Horizontal Irradiance: how much sunlight hits a spot (solar potential).</dd>
+      <dt>FastAPI / SQLite</dt><dd>The web-server framework and the small on-disk database.</dd>
+      <dt>Magic link</dt><dd>Passwordless login: you get an emailed link that logs you in.</dd>
+      <dt>Fixtures</dt><dd>Canned sample data used for testing without hitting the real internet.</dd>
+    </dl>
+  </div>
 
   <footer>
     Codebase orientation guide · The code and <code>models.py</code> are the source of truth.
