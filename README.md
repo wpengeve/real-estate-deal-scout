@@ -84,8 +84,8 @@ Edit `config.yaml` to tune your investment criteria:
 
 ```yaml
 fetch:
-  data_source: csv             # "fixtures" | "csv" | "redfin"
-  csv_paths:                   # combine multiple Redfin CSV exports
+  data_source: scraperapi      # "fixtures" | "csv" | "redfin" | "scraperapi" | "rentcast"
+  csv_paths:                   # only used when data_source: csv
     - data/redfin_2026-03-27.csv
 
 enrich:
@@ -115,31 +115,13 @@ financial_assumptions:
 output:
   max_shortlist: 15
   market: "Seattle, WA"
-  ranker: ollama               # "mock" | "ollama" | "claude"
+  ranker: claude               # "mock" | "ollama" | "claude"
   ollama_model: llama3.1:8b
 ```
 
-## Pipeline Stages
-
-| Stage | Input | Output |
-|-------|-------|--------|
-| Fetch | config | `list[RawListing]` |
-| Screen | listings + criteria | filtered listings (price, beds, DOM, HOA, city, home type) |
-| Enrich | listings | + HUD rent, Walk Score, schools, solar GHI, KC Assessor data |
-| Analyze | enriched listings | cap rate, CoC, cash flow, zoning potential, appreciation signals |
-| Flag risks | analyzed listings | flood zone, DOM outliers, HOA, cap rate flags |
-| Rank + narrate | flagged listings | `Shortlist` with AI-written investment narratives |
-
-## Financial Formulas
-
-- **Cap rate** = NOI / purchase price (financing-independent)
-- **NOI** = effective rent − management − maintenance − insurance − property tax
-- **Effective rent** = gross rent × (1 − vacancy rate)
-- **CoC return** = annual cash flow / total cash invested
-- **Monthly cash flow** = effective rent − mortgage − monthly expenses
-- **Total cash invested** = down payment + closing costs
-
-Seattle market context: SFH cap rates typically run 2–4%. Negative cashflow is common — most Seattle investment thesis is appreciation + ADU/zoning upside.
+> **How it works** — the pipeline stages, financial formulas, file layout, and design
+> decisions all live in the **[Architecture & Code Guide](ARCHITECTURE.md)**. This README
+> stays focused on installing and running the tool.
 
 ## Running Tests
 
@@ -147,48 +129,14 @@ Seattle market context: SFH cap rates typically run 2–4%. Negative cashflow is
 pytest
 ```
 
-217 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, conversational intake, and full pipeline integration.
+~298 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, conversational intake, and full pipeline integration.
 
-## Project Structure
-
-```
-.
-├── config.yaml              # investment criteria and assumptions
-├── pipeline.py              # main orchestrator
-├── scout.py                 # CLI entry point (--chat, --from-analyzed, --market)
-├── data/
-│   └── redfin_*.csv         # Redfin CSV exports (real Seattle listings)
-├── fixtures/
-│   └── listings.json        # sample listings (fixture / offline mode)
-├── outputs/                 # pipeline run outputs (JSON + HTML reports)
-└── tools/
-    ├── models.py            # Pydantic models for all pipeline I/O
-    ├── fetch.py             # listing loader (fixtures, CSV, Redfin API)
-    ├── screen.py            # screening logic (price, beds, DOM, HOA, city)
-    ├── enrich.py            # HUD rent, Walk Score, schools, solar, assessor
-    ├── analyze.py           # financial calculations
-    ├── risks.py             # risk flagging
-    ├── zoning_potential.py  # ADU/DADU/HB1110 zoning analysis
-    ├── appreciation.py      # appreciation signal scoring
-    ├── schools.py           # nearby school lookup (NCES EDGE + Urban Institute)
-    ├── solar.py             # NREL solar resource API (GHI, cached)
-    ├── assessor.py          # KC Assessor tax data
-    ├── crosswalk.py         # USPS ZIP → county FIPS crosswalk (HUD + Census)
-    ├── chat_intake.py       # conversational criteria extraction (Claude tool-use)
-    ├── report.py            # interactive HTML report generator
-    ├── mock_ranker.py       # heuristic ranker (no API key required)
-    └── ollama_ranker.py     # local LLM ranker
-```
+> For the file-by-file layout, see the [Architecture & Code Guide](ARCHITECTURE.md#3-directory-map--what-each-file-does).
 
 ## Roadmap
 
 See [TODOS.md](TODOS.md) for the full platform roadmap.
 
-**Current focus (Phase 1):**
-- Live listings API evaluation (Rentcast / ATTOM / RapidAPI) — unblocks multi-market
-- FastAPI wrapper to serve the pipeline as a web endpoint
-
-**Later phases:**
-- User accounts + saved searches + email alerts
-- Multi-market support beyond Seattle
-- Feedback loop (thumbs up/down → improves rankings)
+- **Phase 1 — "anyone can use it": essentially done.** Live listings (Rentcast), plain-English intake, and the FastAPI web app all shipped; remaining: deploy to a public host.
+- **Phase 2 — "multi-market + accounts": mostly done.** Login, user accounts, and saved report history already exist.
+- **Phase 3 — "retention": not started.** Auto re-run saved searches, email alerts, and a thumbs up/down feedback loop.
