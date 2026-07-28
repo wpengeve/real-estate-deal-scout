@@ -86,6 +86,31 @@ computed for *your* down payment and rate, then explained by AI.
 - [ ] Feedback loop — thumbs up/down on rankings → stored for future ranking context
 - [ ] Saved searches — persist criteria per user (schema groundwork exists)
 
+### New pillar — Market Intelligence (proposed 2026-07-28)
+
+**Idea:** Alongside per-property deal scouting, add an **area-level market-trends
+dashboard** — e.g. for Seattle / Kirkland / Redmond: % of homes sold above vs. below
+list price, sale-to-list ratio, median days-on-market, inventory, price trend over time.
+Answers the buyer's *"is this a hot or cooling market?"* question that sits right next
+to *"is this house a good deal?"*.
+
+**Why it belongs in this repo (not a separate project):** same customer, same moment,
+same web app to host it. Complementary to (not overlapping with) the per-property flow.
+
+**Key catch — needs a new data source.** The current pipeline fetches *active* listings;
+these metrics need *sold/closed* transaction data (list price + final sale price).
+Candidates (prefer free per CLAUDE.md):
+- **Redfin Data Center** — free downloadable monthly area metrics (sale-to-list, % sold
+  above list, median DOM, inventory) by metro/city/ZIP. Closest match; verify fields/license.
+- **Rentcast market statistics** — key already present; confirm whether it exposes sale-to-list.
+
+**Suggested MVP (when prioritized):**
+- [ ] Verify data source (fields, granularity, license) — do this first, cheap de-risk
+- [ ] `tools/market_trends.py` — fetch + cache area dataset (reuse existing cache pattern)
+- [ ] `/market?area=…` route in `app.py`
+- [ ] Dashboard page: sale-to-list %, % over/under asking, median DOM, inventory (Seattle/Kirkland/Redmond)
+- [ ] Later: inline "market snapshot" strip in each deal report for area context
+
 ### NOT building (explicitly out of scope)
 - Mobile app (web is sufficient)
 - MLS integration (requires real estate license)
