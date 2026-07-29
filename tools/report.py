@@ -1028,7 +1028,9 @@ body {{
 }}
 
 /* ── Main layout ── */
-.main {{ max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }}
+/* Full-width: fills the viewport and reflows on resize. Side padding matches the
+   header (2rem) so content left-aligns; the 700px media query tightens it on phones. */
+.main {{ max-width: none; margin: 0; padding: 2rem 2rem; }}
 
 /* ── Cards ── */
 .card {{
@@ -1422,9 +1424,9 @@ body {{
 
 /* ── Map ── */
 .map-section {{
-  max-width: 1100px;
-  margin: 1.25rem auto 0;
-  padding: 0 1.5rem;
+  max-width: none;
+  margin: 1.25rem 0 0;
+  padding: 0 2rem;
 }}
 #property-map {{
   height: 380px;
@@ -1436,9 +1438,9 @@ body {{
 
 /* ── Comparison table ── */
 .comparison-table-wrap {{
-  max-width: 1100px;
-  margin: 1.25rem auto 0;
-  padding: 0 1.5rem;
+  max-width: none;
+  margin: 1.25rem 0 0;
+  padding: 0 2rem;
 }}
 .ct-header {{
   display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.5rem;
