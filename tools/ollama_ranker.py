@@ -255,6 +255,7 @@ def _make_deal(
         school_district=f.listing.school_district,
         hoa_fee=f.listing.hoa_fee,
         days_on_market=f.listing.days_on_market,
+        market_context=f.market_context,
         cap_rate=f.financials.cap_rate,
         coc_return=f.financials.coc_return,
         monthly_cashflow=f.financials.monthly_cashflow,

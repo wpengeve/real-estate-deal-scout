@@ -1,6 +1,6 @@
 # TODOS
 
-Last updated: 2026-07-21
+Last updated: 2026-08-03
 
 ---
 
@@ -31,7 +31,7 @@ Last updated: 2026-07-21
 
 ### Infra / docs
 - **All API keys present** — Anthropic, Google Maps, HUD, NREL, Rentcast, ScraperAPI, Walk Score
-- **369 tests passing**
+- **388 tests passing**
 - **Architecture docs** — `ARCHITECTURE.md` + `ARCHITECTURE.html`
 
 ---
@@ -109,9 +109,9 @@ financials* — which is exactly the stated moat:
 > "This home is priced 8% above Seattle's median $/sqft, and 31% of homes here sell over ask —
 > at your 20% down and 6.5% rate, an over-ask offer pushes cap rate below your 5.5% floor."
 
-**Implication:** the in-report market snapshot strip is the real product and should be built
-first; the standalone dashboard is probably not worth building at all. Reorder the checklist
-accordingly if this is accepted — it is currently listed as "Later".
+**Implication — accepted 2026-08-03.** The in-report market snapshot strip is the real
+product and was built first; the standalone dashboard is not being built. See the checklist
+below.
 
 **Data source — VERIFIED 2026-07-30. Use Redfin Data Center city market tracker.**
 
@@ -130,14 +130,16 @@ Confirmed against live data:
   `Multi-Family (2-4 Unit)`, so rental-investor cuts are possible, not just `All Residential`.
 - **Clean shape** — one row per (city, period, property type). No seasonally-adjusted
   duplicates in this file (`IS_SEASONALLY_ADJUSTED` is always false), all periods 30-day.
-- **Recency — softer than it first looked. Re-verify before building.** File stamped
-  2026-06-02, latest period 2026-05-31. Re-checked 2026-08-03: **still 2026-06-02, identical
-  byte count — no refresh in two months**, so the data is now ~2 months stale and the "updated
-  monthly" cadence is unconfirmed for this S3 path. Either Redfin's cadence is slower than its
-  dashboards imply, or the refreshed file lives at a different path. **Resolve this before
-  building a refresh job** — a monthly cron against a file that updates irregularly is wasted
-  work, and the UI needs an honest "data as of <period>" line either way. Fine for
-  "hot or cooling"; never promise current-month data.
+- **Recency — RESOLVED 2026-08-03. Publication is irregular; poll, don't schedule.**
+  File stamped 2026-06-02, latest period 2026-05-31, and unchanged two months later.
+  Checked all five monthly trackers (city, county, state, ZIP, national): **every one is
+  stamped within four minutes of the others on 2026-06-02 and none has moved since.** So the
+  whole monthly batch publishes at once and simply hasn't run — the city file did not move to
+  a different path. A blind monthly cron would therefore re-download ~950 MB to produce a
+  byte-identical slice. **Design consequence:** `refresh()` HEADs the URL first and skips the
+  download when `Last-Modified` matches what the local slice was built from (`--force`
+  overrides). The skip path costs ~0.5s. The UI carries an honest "data as of <period>" line.
+  Fine for "hot or cooling"; never promise current-month data.
 
 **Design constraint — rows are unsorted by region.** Extracting one city means scanning the
 whole 954 MB file, so this must be a **cached monthly batch refresh, never a per-request fetch**.
@@ -166,20 +168,32 @@ before this goes public-facing. Not a blocker for local/internal work.
       $/sqft vs the city median (the part a generic dashboard can't show)
 - [x] Redfin source attribution in the strip
 - [x] Minimum-sample threshold (10 sales) + `NA` handling before any percentage renders
-- [x] 64 tests, no network (gzip fixture for refresh, tmp_path slices for lookup)
+- [x] 83 tests, no network (gzip fixture for refresh, tmp_path slices for lookup)
 
-**Not built — pending the CEO call on whether the standalone dashboard exists at all
-(see the competitive reality check above):**
-- [ ] `/market?area=…` route in `app.py`
-- [ ] Standalone dashboard page for Seattle/Kirkland/Redmond
+**Ranker integration — done (2026-08-03):**
+- [x] Market context threaded through the pipeline (`FlaggedListing.market_context` →
+      `DealNarrative.market_context`), attached at all three entry points (`run`,
+      `run_from_analyzed`, `run_single_property`) from the local slice — no network
+- [x] Claude ranking prompt carries an `area_market` object per listing plus guidance
+      encoding the caveats (final-list-price, staleness, "work it into Line 2 or 3, never
+      add a fourth line"), so narratives can reason about pricing vs the city and expected
+      competition
+- [x] Percentages withheld from the *model* below the sample threshold, not just from the
+      reader — the ranker never sees "100% above list" off one sale
+- [x] Report prefers pipeline-attached context, falling back to a lookup for shortlists
+      saved before this existed, so strip and narrative can't disagree
 
-**Follow-ups surfaced during the build:**
-- [ ] Feed market context into the *ranker*, not just the report — the moat example
-      ("an over-ask offer pushes cap rate below your floor") needs it in the narrative,
-      which means threading it through DealNarrative rather than looking it up at render time
-- [ ] Confirm upstream refresh cadence before automating (see Recency above)
-- [ ] Deployment sizing: the 954 MB refresh needs disk/memory that small instances
-      may not have — couples to Active P1
+**Standalone dashboard — decided 2026-08-03: NOT building.** Redfin already publishes an
+equivalent free public dashboard from the same data (see the competitive reality check
+above), so it would be the least defensible part of the pillar. The data layer is done, so
+this is roughly a day's work if that call is ever reversed.
+- [ ] ~~`/market?area=…` route in `app.py`~~
+- [ ] ~~Standalone dashboard page for Seattle/Kirkland/Redmond~~
+
+**Remaining follow-up:**
+- [ ] Deployment sizing: the ~950 MB refresh needs disk/memory that small instances may not
+      have — couples to Active P1. Likely answer: refresh locally and ship the ~15 MB slice,
+      rather than paying for a bigger box.
 
 **Metric definitions (verbatim, Redfin methodology) and display caveats:**
 

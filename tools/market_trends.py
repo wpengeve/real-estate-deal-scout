@@ -32,27 +32,29 @@ Attribution: data provided by Redfin. Licensing terms are unresolved as of
 """
 import csv
 import gzip
+import json
 import logging
 import urllib.request
-from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from tools.models import MIN_SALES_FOR_RATES, MarketSnapshot
+
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "MIN_SALES_FOR_RATES", "MarketSnapshot", "refresh", "snapshot_for_city",
+    "snapshot_for_address", "history_for_city", "parse_city_state", "slice_path",
+]
 
 _SOURCE_URL = (
     "https://redfin-public-data.s3.us-west-2.amazonaws.com/"
     "redfin_market_tracker/city_market_tracker.tsv000.gz"
 )
 _DOWNLOAD_TIMEOUT = 900.0  # generous: the file is ~950 MB
+_HEAD_TIMEOUT = 30.0       # headers only — used to skip needless downloads
 
 _DATA_DIR = Path("data")
-
-# Percentages and ratios computed from fewer than this many closed sales are
-# statistically meaningless and must not be rendered. Verified against real
-# data: of 555 WA cities, a long tail closes 1-3 homes/month, producing rows
-# like Alger (1 sale -> "100% above list") and Bucoda (1 sale -> 0.877).
-MIN_SALES_FOR_RATES = 10
 
 # Only these are kept from the upstream file's 58 columns.
 _KEPT_COLUMNS = [
@@ -72,59 +74,6 @@ _HISTORY_YEARS = 3
 # city_key -> list of rows, newest period first. Loaded lazily, once.
 _index: dict[str, list[dict]] | None = None
 _index_source: Path | None = None
-
-
-# ── Model ─────────────────────────────────────────────────────────────────────
-
-@dataclass(frozen=True)
-class MarketSnapshot:
-    """One city + month + property type of market context."""
-    city: str
-    state: str
-    period_end: str
-    property_type: str
-    homes_sold: int | None
-    median_sale_price: float | None
-    median_list_price: float | None
-    median_ppsf: float | None
-    inventory: float | None
-    new_listings: float | None
-    pending_sales: float | None
-    months_of_supply: float | None
-    median_dom: float | None
-    sale_to_list: float | None
-    pct_above_list: float | None
-    pct_price_drops: float | None
-    pct_off_market_two_weeks: float | None
-    median_sale_price_yoy: float | None
-    median_dom_yoy: float | None
-    sale_to_list_yoy: float | None
-    inventory_yoy: float | None
-
-    @property
-    def has_enough_sales(self) -> bool:
-        """
-        False when the sale count is too small for percentages to mean anything.
-
-        Callers must suppress sale_to_list / pct_above_list / pct_price_drops
-        when this is False and show homes_sold instead.
-        """
-        return self.homes_sold is not None and self.homes_sold >= MIN_SALES_FOR_RATES
-
-    @property
-    def market_temperature(self) -> str | None:
-        """
-        Plain-language read of months of supply — the one headline metric that
-        needs no caveat. Conventional thresholds: <3 seller's, 3-6 balanced,
-        >6 buyer's.
-        """
-        if self.months_of_supply is None:
-            return None
-        if self.months_of_supply < 3:
-            return "Seller's market"
-        if self.months_of_supply <= 6:
-            return "Balanced market"
-        return "Buyer's market"
 
 
 # ── Parsing helpers ───────────────────────────────────────────────────────────
@@ -196,27 +145,77 @@ def slice_path(state: str, data_dir: Path | None = None) -> Path:
     return base / f"market_trends_{state.upper()}.tsv"
 
 
+def _meta_path(state: str, data_dir: Path | None = None) -> Path:
+    return slice_path(state, data_dir).with_suffix(".meta.json")
+
+
+def _read_meta(state: str, data_dir: Path | None = None) -> dict:
+    try:
+        return json.loads(_meta_path(state, data_dir).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def local_last_modified(state: str, data_dir: Path | None = None) -> str | None:
+    """Upstream Last-Modified that the existing local slice was built from."""
+    if not slice_path(state, data_dir).exists():
+        return None
+    return _read_meta(state, data_dir).get("last_modified")
+
+
+def upstream_last_modified(source_url: str = _SOURCE_URL) -> str | None:
+    """
+    Last-Modified of the upstream file, via a HEAD request. None if unavailable.
+
+    Cheap (headers only) — this is what makes conditional refresh possible.
+    """
+    try:
+        request = urllib.request.Request(source_url, method="HEAD")
+        with urllib.request.urlopen(request, timeout=_HEAD_TIMEOUT) as response:
+            return response.headers.get("Last-Modified")
+    except Exception as e:
+        logger.warning("Could not HEAD %s: %r", source_url, e)
+        return None
+
+
 def refresh(
     state: str = "WA",
     data_dir: Path | None = None,
     source_url: str = _SOURCE_URL,
     history_years: int = _HISTORY_YEARS,
+    force: bool = False,
 ) -> Path:
     """
     Download the upstream file, filter it to one state, and write a local slice.
 
-    Streams and discards as it goes, so peak memory stays flat regardless of the
-    ~950 MB download. Writes to a temporary file and renames only on success, so
-    an interrupted refresh leaves the previous slice intact rather than a
-    truncated one.
+    Skips the download entirely when the upstream Last-Modified matches what the
+    existing slice was built from (pass force=True to override). This matters:
+    Redfin's monthly tracker files do not publish on a dependable schedule — all
+    five were stamped 2026-06-02 within four minutes of each other and had not
+    moved two months later — so a blind monthly job would re-download ~950 MB to
+    produce a byte-identical slice. Checking headers first costs one request.
 
-    Returns the path written. Raises on network/parse failure — the CLI reports
-    it; lookups continue to serve the previous slice.
+    Streams and discards as it goes, so peak memory stays flat regardless of the
+    download size. Writes to a temporary file and renames only on success, so an
+    interrupted refresh leaves the previous slice intact rather than a truncated
+    one.
+
+    Returns the path of the current slice. Raises on network/parse failure — the
+    CLI reports it; lookups continue to serve the previous slice.
     """
     state = state.upper()
     dest = slice_path(state, data_dir)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".tsv.partial")
+
+    remote_stamp = upstream_last_modified(source_url)
+    if not force and dest.exists() and remote_stamp:
+        if _read_meta(state, data_dir).get("last_modified") == remote_stamp:
+            logger.info(
+                "Upstream unchanged since %s — keeping existing slice %s",
+                remote_stamp, dest,
+            )
+            return dest
 
     cutoff = f"{date.today().year - history_years}-01-01"
     logger.info("Refreshing market trends for %s from %s", state, source_url)
@@ -251,6 +250,14 @@ def refresh(
         raise
 
     tmp.replace(dest)
+    _meta_path(state, data_dir).write_text(
+        json.dumps({
+            "last_modified": remote_stamp,
+            "source_url": source_url,
+            "rows": kept,
+        }, indent=2),
+        encoding="utf-8",
+    )
     logger.info(
         "Market trends refreshed: %d rows kept for %s (scanned %d) -> %s",
         kept, state, scanned, dest,

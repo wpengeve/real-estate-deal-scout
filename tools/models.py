@@ -193,6 +193,71 @@ class AppreciationSignals(BaseModel):
     signals: list[str] = Field(default_factory=list)  # human-readable signal descriptions
 
 
+# Percentages computed from fewer than this many closed sales are statistically
+# meaningless and must not be rendered or fed to the ranker. Verified against
+# real data: of 555 WA cities, a long tail closes 1-3 homes/month, producing
+# rows like Alger (1 sale -> "100% above list").
+MIN_SALES_FOR_RATES = 10
+
+
+class MarketSnapshot(BaseModel):
+    """
+    One city + month + property type of area market context (Redfin Data Center).
+
+    Caveats that constrain how these may be used — see tools/market_trends.py:
+    sale_to_list and pct_above_list are measured against the FINAL list price
+    (so price cuts are invisible; pct_price_drops is the counterweight), they
+    cover homes that CLOSED while median_dom covers homes that went UNDER
+    CONTRACT, and median_dom stops at contract rather than closing.
+    """
+    city: str
+    state: str
+    period_end: str
+    property_type: str
+    homes_sold: int | None = None
+    median_sale_price: float | None = None
+    median_list_price: float | None = None
+    median_ppsf: float | None = None
+    inventory: float | None = None
+    new_listings: float | None = None
+    pending_sales: float | None = None
+    months_of_supply: float | None = None
+    median_dom: float | None = None
+    sale_to_list: float | None = None
+    pct_above_list: float | None = None
+    pct_price_drops: float | None = None
+    pct_off_market_two_weeks: float | None = None
+    median_sale_price_yoy: float | None = None
+    median_dom_yoy: float | None = None
+    sale_to_list_yoy: float | None = None
+    inventory_yoy: float | None = None
+
+    @property
+    def has_enough_sales(self) -> bool:
+        """
+        False when the sale count is too small for percentages to mean anything.
+
+        Callers must suppress sale_to_list / pct_above_list / pct_price_drops
+        when this is False and show homes_sold instead.
+        """
+        return self.homes_sold is not None and self.homes_sold >= MIN_SALES_FOR_RATES
+
+    @property
+    def market_temperature(self) -> str | None:
+        """
+        Plain-language read of months of supply — the one headline metric that
+        needs no caveat. Conventional thresholds: <3 seller's, 3-6 balanced,
+        >6 buyer's.
+        """
+        if self.months_of_supply is None:
+            return None
+        if self.months_of_supply < 3:
+            return "Seller's market"
+        if self.months_of_supply <= 6:
+            return "Balanced market"
+        return "Buyer's market"
+
+
 class ZoningPotential(BaseModel):
     zoned_units: int | None = None            # max units current zoning allows
     adu_eligible: bool = False                # can add attached ADU (in-law suite)
@@ -236,6 +301,7 @@ class FlaggedListing(_ListingFeaturesMixin):
     risks: RiskResult
     zoning_potential: ZoningPotential | None = None
     appreciation: AppreciationSignals | None = None
+    market_context: MarketSnapshot | None = None  # area stats for the listing's city
 
 
 # ─── Claude output ────────────────────────────────────────────────────────────
@@ -279,6 +345,7 @@ class DealNarrative(BaseModel):
     year_built: int | None = None
     nearby_schools: list[SchoolInfo] | None = None
     solar_ghi_annual: float | None = None
+    market_context: MarketSnapshot | None = None  # area stats for the listing's city
     # Redfin-scraped property features (populated when data_source=scraperapi)
     has_primary_suite: bool | None = None
     has_garage: bool | None = None

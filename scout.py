@@ -201,21 +201,36 @@ def main() -> None:
         metavar="STATE",
         help=(
             "Refresh the local area-market slice for a state (e.g. WA), then exit. "
-            "Downloads ~950MB from Redfin — run monthly, not per search."
+            "Skips the ~950MB download when Redfin hasn't published new data."
         ),
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="With --market-refresh: re-download even if upstream is unchanged",
     )
     args = parser.parse_args()
 
     # --market-refresh: batch data refresh, no config needed
     if args.market_refresh:
         state = args.market_refresh.upper()
+        console.print(f"\n[bold]Refreshing area-market data[/bold] · {state}")
+
+        local = market_trends.local_last_modified(state)
+        upstream = market_trends.upstream_last_modified()
+        if local and upstream and local == upstream and not args.force:
+            console.print(
+                f"[green]✓[/green] Already current — Redfin last published "
+                f"{upstream}.\n[dim]Use --force to re-download anyway.[/dim]"
+            )
+            return
+
         console.print(
-            f"\n[bold]Refreshing area-market data[/bold] · {state}\n"
             "[dim]Downloading ~950MB from Redfin and filtering — this takes a few "
             "minutes.[/dim]"
         )
         try:
-            dest = market_trends.refresh(state=state)
+            dest = market_trends.refresh(state=state, force=args.force)
         except Exception as e:
             console.print(f"[red]Market refresh failed: {e}[/red]")
             console.print("[dim]The previous slice (if any) is unchanged.[/dim]")
@@ -223,6 +238,8 @@ def main() -> None:
 
         rows = max(0, sum(1 for _ in dest.open(encoding="utf-8")) - 1)
         console.print(f"[green]✓[/green] {rows:,} rows written to {dest}")
+        if upstream:
+            console.print(f"[dim]Upstream published {upstream}[/dim]")
         return
 
     # --from-analyzed: re-run ranking on a previously saved analyzed JSON file

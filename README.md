@@ -86,12 +86,17 @@ python scout.py --market-refresh WA
 
 Adds a "Market Context" strip to each deal in the report — months of supply,
 sale-to-list ratio, share sold above asking, median days to contract, and how the
-home's $/sqft compares to its city median.
+home's $/sqft compares to its city median. The AI ranker sees the same numbers, so
+narratives can weigh pricing against the city and expected competition.
 
 Source is the free [Redfin Data Center](https://www.redfin.com/news/data-center/)
 city market tracker: no API key, no quota. The download is ~950 MB and the upstream
-file is unsorted by region, so this is a batch refresh — run it monthly, not per
-search. The filtered slice lands in `data/market_trends_<STATE>.tsv` (gitignored).
+file is unsorted by region, so this is a batch refresh, not a per-search fetch. The
+filtered slice lands in `data/market_trends_<STATE>.tsv` (gitignored).
+
+Re-running is cheap: it checks the upstream `Last-Modified` first and skips the
+download when Redfin hasn't published anything new (`--force` overrides). Redfin's
+monthly files publish on an irregular schedule, so this is safe to run whenever.
 
 Reports work fine without it; the strip simply doesn't appear until you refresh.
 Note the data is monthly and typically runs 1–2 months behind, and percentages are

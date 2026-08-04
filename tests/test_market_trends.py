@@ -8,6 +8,7 @@ including the small-sample and NA cases that motivated the guards.
 """
 import gzip
 import io
+import json
 
 import pytest
 
@@ -315,10 +316,32 @@ def _gzipped_source(rows) -> bytes:
     return gzip.compress(("\n".join(lines) + "\n").encode("utf-8"))
 
 
-def _patch_urlopen(monkeypatch, payload: bytes):
+class _FakeHeadResponse(io.BytesIO):
+    """Minimal stand-in for a urlopen HEAD response."""
+
+    def __init__(self, last_modified: str | None):
+        super().__init__(b"")
+        self.headers = {"Last-Modified": last_modified} if last_modified else {}
+
+
+def _patch_urlopen(monkeypatch, payload: bytes, last_modified: str | None = None):
+    """
+    Patch urlopen, answering HEAD with headers and GET with the gzip payload.
+
+    Returns a counter dict so tests can assert a download was skipped rather
+    than merely that the result looked right.
+    """
+    calls = {"HEAD": 0, "GET": 0}
+
     def fake_urlopen(request, timeout=None):
+        method = getattr(request, "method", None) or "GET"
+        calls[method] = calls.get(method, 0) + 1
+        if method == "HEAD":
+            return _FakeHeadResponse(last_modified)
         return io.BytesIO(payload)
+
     monkeypatch.setattr(mt.urllib.request, "urlopen", fake_urlopen)
+    return calls
 
 
 def test_refresh_filters_to_state(tmp_path, monkeypatch):
@@ -365,6 +388,73 @@ def test_failed_refresh_preserves_previous_slice(tmp_path, monkeypatch):
 
     assert dest.read_text(encoding="utf-8") == before
     assert not (tmp_path / "market_trends_WA.tsv.partial").exists()
+
+
+# ── conditional refresh ───────────────────────────────────────────────────────
+#
+# Redfin's monthly files do not publish on a dependable schedule — all five
+# trackers were stamped 2026-06-02 within four minutes of each other and had
+# not moved two months later. So refresh must check headers before spending a
+# ~950 MB download on a byte-identical result.
+
+_STAMP = "Tue, 02 Jun 2026 18:16:20 GMT"
+
+
+def test_refresh_skips_download_when_upstream_unchanged(tmp_path, monkeypatch):
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    mt.refresh(state="WA", data_dir=tmp_path)
+    assert calls["GET"] == 1
+
+    mt.refresh(state="WA", data_dir=tmp_path)
+    assert calls["GET"] == 1, "second refresh must not re-download unchanged data"
+    assert calls["HEAD"] == 2
+
+
+def test_refresh_downloads_when_upstream_changed(tmp_path, monkeypatch):
+    _patch_urlopen(monkeypatch, _gzipped_source([_ROWS[1]]), last_modified=_STAMP)
+    mt.refresh(state="WA", data_dir=tmp_path)
+    assert snapshot_for_city("Seattle", "WA", data_dir=tmp_path).period_end == "2026-04-30"
+
+    calls = _patch_urlopen(
+        monkeypatch, _gzipped_source(_ROWS), last_modified="Wed, 01 Jul 2026 10:00:00 GMT"
+    )
+    mt.refresh(state="WA", data_dir=tmp_path)
+    assert calls["GET"] == 1
+    assert snapshot_for_city("Seattle", "WA", data_dir=tmp_path).period_end == "2026-05-31"
+
+
+def test_force_redownloads_unchanged_data(tmp_path, monkeypatch):
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    mt.refresh(state="WA", data_dir=tmp_path)
+    mt.refresh(state="WA", data_dir=tmp_path, force=True)
+    assert calls["GET"] == 2
+
+
+def test_refresh_downloads_when_head_unavailable(tmp_path, monkeypatch):
+    """No Last-Modified header must mean 'download', not 'silently skip'."""
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=None)
+    mt.refresh(state="WA", data_dir=tmp_path)
+    mt.refresh(state="WA", data_dir=tmp_path)
+    assert calls["GET"] == 2
+
+
+def test_refresh_records_upstream_stamp(tmp_path, monkeypatch):
+    _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    mt.refresh(state="WA", data_dir=tmp_path)
+
+    meta = json.loads((tmp_path / "market_trends_WA.meta.json").read_text(encoding="utf-8"))
+    assert meta["last_modified"] == _STAMP
+    assert meta["rows"] == len(_ROWS)
+
+
+def test_missing_slice_forces_download_despite_matching_stamp(tmp_path, monkeypatch):
+    """A stale meta file with no slice beside it must not suppress the download."""
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    mt.refresh(state="WA", data_dir=tmp_path)
+    (tmp_path / "market_trends_WA.tsv").unlink()
+
+    mt.refresh(state="WA", data_dir=tmp_path)
+    assert calls["GET"] == 2
 
 
 def test_refresh_invalidates_cached_index(tmp_path, monkeypatch):

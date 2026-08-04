@@ -256,7 +256,10 @@ def _render_market_snapshot(deal: DealNarrative) -> str:
     metrics use the *final* list price, so a home that cut its price and sold at
     the reduced ask still scores ~1.0, and the drop rate is the counterweight.
     """
-    snap = market_trends.snapshot_for_address(deal.address)
+    # Prefer what the pipeline attached (the same data the ranker reasoned over,
+    # so strip and narrative can't disagree). Fall back to a local lookup for
+    # shortlists saved before market context was carried through the pipeline.
+    snap = deal.market_context or market_trends.snapshot_for_address(deal.address)
     if snap is None:
         return ""
 

@@ -22,6 +22,7 @@ import anthropic
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from tools import market_trends
 from tools.analyze import analyze_all
 from tools.enrich import enrich_all
 from tools.fetch import fetch_listings_async, resolve_city_urls
@@ -37,6 +38,93 @@ console = Console()
 
 _OUTPUTS_DIR = Path("outputs")
 _CLAUDE_MODEL = "claude-sonnet-4-6"
+
+# Appended to both ranking prompts. The model sees only the JSON, so the
+# metrics' caveats have to travel with the instructions.
+_MARKET_GUIDANCE = """
+Some properties include an "area_market" object — city-level stats for the month \
+named in data_month. Use it only where it changes the recommendation: how this \
+home is priced against its city, and how much competition to expect. \
+Work it into Line 2 or Line 3 — never add a fourth line. Rules: \
+(a) If "rates_withheld" is present the city had too few sales that month; speak \
+only to price-per-sqft and supply, and quote no percentages. \
+(b) avg_sale_to_final_list_price and pct_sold_above_final_list are measured against \
+the FINAL list price, so they hide price cuts — read them with \
+pct_listings_with_price_cut before calling a market hot. \
+(c) median_days_to_contract ends at contract, not closing. \
+(d) The data is at least a month old — never present it as current conditions."""
+
+
+def _attach_market_context(flagged: list[FlaggedListing]) -> None:
+    """
+    Attach area market stats to each listing, in place, before ranking.
+
+    Runs off the local slice written by `scout.py --market-refresh`, so it is a
+    cheap dict lookup with no network. Listings in cities we have no data for
+    simply keep market_context=None — the ranker and report both treat it as
+    optional context.
+    """
+    for f in flagged:
+        try:
+            f.market_context = market_trends.snapshot_for_address(f.listing.address)
+        except Exception as e:  # never let optional context break a run
+            logger.warning("Market context lookup failed for %s: %r", f.listing.address, e)
+            f.market_context = None
+
+    found = sum(1 for f in flagged if f.market_context is not None)
+    if found:
+        logger.info("Attached market context to %d/%d listings", found, len(flagged))
+    elif flagged:
+        logger.info(
+            "No market context available — run `scout.py --market-refresh <STATE>`"
+        )
+
+
+def _market_context_for_prompt(f: FlaggedListing) -> dict | None:
+    """
+    Compact market context for the ranking prompt, or None when unavailable.
+
+    Percentages are omitted below the sample threshold — the model must not see
+    "100% sold above list" computed from a single sale any more than the reader
+    should. Field names carry their own caveats because the model only sees this
+    JSON, not the module docstring.
+    """
+    m = f.market_context
+    if m is None:
+        return None
+
+    context: dict = {
+        "city": m.city,
+        "data_month": m.period_end,
+        "months_of_supply": m.months_of_supply,
+        "market_temperature": m.market_temperature,
+        "median_days_to_contract": m.median_dom,
+        "homes_sold_that_month": m.homes_sold,
+    }
+
+    if m.has_enough_sales:
+        context["avg_sale_to_final_list_price"] = (
+            round(m.sale_to_list, 4) if m.sale_to_list is not None else None
+        )
+        context["pct_sold_above_final_list"] = (
+            round(m.pct_above_list, 3) if m.pct_above_list is not None else None
+        )
+        context["pct_listings_with_price_cut"] = (
+            round(m.pct_price_drops, 3) if m.pct_price_drops is not None else None
+        )
+    else:
+        context["rates_withheld"] = "too few sales this month to be meaningful"
+
+    if m.median_ppsf:
+        context["city_median_ppsf"] = round(m.median_ppsf)
+        if f.listing.price and f.listing.sqft:
+            listing_ppsf = f.listing.price / f.listing.sqft
+            context["this_home_ppsf"] = round(listing_ppsf)
+            context["ppsf_vs_city_median_pct"] = round(
+                (listing_ppsf / m.median_ppsf - 1) * 100, 1
+            )
+
+    return context
 
 
 async def run(
@@ -253,6 +341,8 @@ async def run(
             console.log(f"[dim]Risk flags: {len(high_risk)} high-risk properties[/dim]")
         console.log(f"[dim]Ready to rank {len(flagged)} properties[/dim]")
 
+    _attach_market_context(flagged)
+
     # ── Save analyzed data BEFORE calling Claude ─────────────────────────────
     # If the Claude API fails, the pipeline work isn't lost.
     analyzed_path = _OUTPUTS_DIR / f"{run_id}_analyzed.json"
@@ -324,6 +414,10 @@ async def run_from_analyzed(analyzed_path: Path, config: InvestmentConfig) -> Sh
         raise ValueError(f"Could not load analyzed file: {e}") from e
 
     console.print(f"[dim]Loaded {len(flagged)} analyzed listings from {analyzed_path}[/dim]")
+
+    # Re-attach rather than trust the saved file: the slice may have been
+    # refreshed since the analyzed JSON was written.
+    _attach_market_context(flagged)
 
     ranker = config.output.ranker
     if ranker == "ollama":
@@ -398,6 +492,7 @@ async def _claude_rank_and_narrate(
             "flood_zone": f.risks.flood_zone,
             "risk_level": f.risks.overall_risk.value,
             "risk_flags": [{"code": rf.code, "description": rf.description} for rf in f.risks.flags],
+            "area_market": _market_context_for_prompt(f),
         }
         for f in flagged
     ]
@@ -429,7 +524,8 @@ Line 3: Verdict using exactly one of these labels followed by one short reason:
   "Pass" — significant drawback that makes it unsuitable as a primary residence
 Keep each sentence under 20 words. No conjunctions chaining clauses. No semicolons. \
 Rank by overall livability quality — location, schools, walkability, and value for the price. \
-HIGH risk must be stated plainly in the verdict line."""
+HIGH risk must be stated plainly in the verdict line.
+{_MARKET_GUIDANCE}"""
     else:
         user_prompt = f"""You are an experienced real estate investment analyst reviewing pre-screened properties.
 
@@ -457,7 +553,8 @@ Line 3: Verdict using exactly one of these labels followed by one short reason:
 Keep each sentence under 20 words. No conjunctions chaining clauses. No semicolons. \
 Rank by overall investment quality (cap rate, cash flow, risk-adjusted return). \
 Properties with financial_data_available=false rank lower. \
-HIGH risk must be stated plainly in the verdict line."""
+HIGH risk must be stated plainly in the verdict line.
+{_MARKET_GUIDANCE}"""
 
     # Use a minimal schema for the tool call — the full inlined Shortlist schema is
     # too large and causes Claude to omit the required `deals` array.
@@ -535,6 +632,7 @@ HIGH risk must be stated plainly in the verdict line."""
         deal.sqft = f.listing.sqft
         deal.lot_sqft = f.listing.lot_sqft
         deal.days_on_market = f.listing.days_on_market
+        deal.market_context = f.market_context
         deal.cap_rate = f.financials.cap_rate
         deal.coc_return = f.financials.coc_return
         deal.monthly_cashflow = f.financials.monthly_cashflow
@@ -641,6 +739,8 @@ async def run_single_property(
         if progress_cb: progress_cb("[3/3] Flagging risks...")
         flagged = flag_all(analyzed, config.criteria)
 
+    _attach_market_context(flagged)
+
     if progress_cb: progress_cb("[3/3] Ranking with AI...")
     # ── Narrate ───────────────────────────────────────────────────────────────
     ranker = config.output.ranker
@@ -697,6 +797,7 @@ async def run_multi_property(urls: list[str], config: InvestmentConfig) -> Short
     enrich_results = await enrich_all(listings, config.enrich)
     analyzed = analyze_all(enrich_results, config.financial_assumptions, config.purpose)
     flagged = flag_all(analyzed, config.criteria)
+    _attach_market_context(flagged)
 
     ranker = config.output.ranker
     if ranker == "claude":

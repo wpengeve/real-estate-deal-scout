@@ -31,6 +31,7 @@ data/*.db
 
 # Area-market slices (regenerable: scout.py --market-refresh WA)
 data/market_trends_*.tsv
+data/market_trends_*.meta.json
 
 # Claude Code local settings
 .claude/
