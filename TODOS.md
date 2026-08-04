@@ -97,19 +97,104 @@ to *"is this house a good deal?"*.
 **Why it belongs in this repo (not a separate project):** same customer, same moment,
 same web app to host it. Complementary to (not overlapping with) the per-property flow.
 
-**Key catch — needs a new data source.** The current pipeline fetches *active* listings;
-these metrics need *sold/closed* transaction data (list price + final sale price).
-Candidates (prefer free per CLAUDE.md):
-- **Redfin Data Center** — free downloadable monthly area metrics (sale-to-list, % sold
-  above list, median DOM, inventory) by metro/city/ZIP. Closest match; verify fields/license.
-- **Rentcast market statistics** — key already present; confirm whether it exposes sale-to-list.
+**Competitive reality check (2026-07-30) — this should reshape the MVP.**
+The data source is Redfin's own public dashboard data, and **Redfin already publishes it as a
+free public dashboard.** Anyone can look up Seattle's sale-to-list and median DOM today without
+us. So a standalone `/market` page largely rebuilds something that already exists, from the same
+source, for free — it is the *least* defensible part of this pillar, not the core of it.
 
-**Suggested MVP (when prioritized):**
-- [ ] Verify data source (fields, granularity, license) — do this first, cheap de-risk
-- [ ] `tools/market_trends.py` — fetch + cache area dataset (reuse existing cache pattern)
+What Redfin cannot show is the join between area stats and *the user's specific deal and
+financials* — which is exactly the stated moat:
+
+> "This home is priced 8% above Seattle's median $/sqft, and 31% of homes here sell over ask —
+> at your 20% down and 6.5% rate, an over-ask offer pushes cap rate below your 5.5% floor."
+
+**Implication:** the in-report market snapshot strip is the real product and should be built
+first; the standalone dashboard is probably not worth building at all. Reorder the checklist
+accordingly if this is accepted — it is currently listed as "Later".
+
+**Data source — VERIFIED 2026-07-30. Use Redfin Data Center city market tracker.**
+
+Source: `https://redfin-public-data.s3.us-west-2.amazonaws.com/redfin_market_tracker/city_market_tracker.tsv000.gz`
+(954 MB gzipped, TSV, no API key, no quota, no rate limit)
+
+Every metric the pillar needs is present, with MoM and YoY deltas for each:
+`AVG_SALE_TO_LIST`, `SOLD_ABOVE_LIST`, `MEDIAN_DOM`, `INVENTORY`, `MONTHS_OF_SUPPLY`,
+`HOMES_SOLD`, `NEW_LISTINGS`, `PENDING_SALES`, `PRICE_DROPS`, `OFF_MARKET_IN_TWO_WEEKS`,
+`MEDIAN_SALE_PRICE`, `MEDIAN_LIST_PRICE`, `MEDIAN_PPSF`.
+
+Confirmed against live data:
+- **Coverage** — 555 WA cities. Seattle, Bellevue, Kirkland, Redmond all populated.
+  (Seattle May 2026: sale-to-list 1.008, 30.9% above list, 11 median DOM, 799 sold, 2111 inventory.)
+- **Granularity** — city × month × property type. Property types include
+  `Multi-Family (2-4 Unit)`, so rental-investor cuts are possible, not just `All Residential`.
+- **Clean shape** — one row per (city, period, property type). No seasonally-adjusted
+  duplicates in this file (`IS_SEASONALLY_ADJUSTED` is always false), all periods 30-day.
+- **Recency — softer than it first looked. Re-verify before building.** File stamped
+  2026-06-02, latest period 2026-05-31. Re-checked 2026-08-03: **still 2026-06-02, identical
+  byte count — no refresh in two months**, so the data is now ~2 months stale and the "updated
+  monthly" cadence is unconfirmed for this S3 path. Either Redfin's cadence is slower than its
+  dashboards imply, or the refreshed file lives at a different path. **Resolve this before
+  building a refresh job** — a monthly cron against a file that updates irregularly is wasted
+  work, and the UI needs an honest "data as of <period>" line either way. Fine for
+  "hot or cooling"; never promise current-month data.
+
+**Design constraint — rows are unsorted by region.** Extracting one city means scanning the
+whole 954 MB file, so this must be a **cached monthly batch refresh, never a per-request fetch**.
+Filtering WA to 2024+ yields 30,782 rows / 15 MB — small enough to persist locally
+(SQLite table in `scout.db`, or a filtered TSV alongside the existing cache pattern).
+
+**Rentcast — rejected.** `/v1/markets` returned HTTP 403 on the current key (likely paid-tier
+gated). Not worth chasing: its free tier is 50 calls/month and is already spent on listing
+fetches, whereas Redfin costs nothing and has the sale-to-list and above-list fields Rentcast
+may not expose at all (its market data is listing-derived, not closed-transaction).
+
+**Open question — licensing.** Redfin's Data Center, Downloads, and Methodology pages carry
+no explicit license, attribution, or redistribution terms; the files are public and unauthenticated,
+and the site-wide Terms of Use are the only governing document found. Attribute Redfin as the
+source on any page that displays these numbers, and resolve terms with `econdata@redfin.com`
+before this goes public-facing. Not a blocker for local/internal work.
+
+**MVP (unblocked — ready to build):**
+- [x] Verify data source (fields, granularity, license)
+- [ ] `tools/market_trends.py` — monthly download → filter to target state/cities → persist locally
 - [ ] `/market?area=…` route in `app.py`
 - [ ] Dashboard page: sale-to-list %, % over/under asking, median DOM, inventory (Seattle/Kirkland/Redmond)
+- [ ] Redfin source attribution in the report/dashboard footer
+- [ ] Minimum-sample threshold + `NA` handling before any percentage renders (see QA below)
 - [ ] Later: inline "market snapshot" strip in each deal report for area context
+
+**Metric definitions (verbatim, Redfin methodology) and display caveats:**
+
+- **Sale-to-list** — "For homes sold during a given period, the average ratio of each home's
+  final sale price to its final list price." 0.99 = sold ~1% under ask; 1.01 = ~1% over.
+- **% sold above list** — "The percentage of homes sold where the sale price was above the
+  most recent list price."
+- **Median DOM** — "For homes that went under contract during a given period, the median
+  number of days they were listed for before going under contract."
+
+Three caveats that must shape the UI copy:
+1. **Both price metrics use the *final* list price, not the original.** A home listed at $1M,
+   cut to $900k, sold at $900k scores 1.000 and reads as "sold at asking" despite going 10%
+   under its original ask. These metrics systematically understate seller weakness — always
+   display `PRICE_DROPS` alongside as the counterweight.
+2. **Different cohorts.** Sale-to-list and % above list cover homes that *closed* in the period;
+   median DOM covers homes that went *under contract* in it. Same city, same month, different
+   sets of houses — don't narrate them as one group.
+3. **DOM stops at contract, not closing.** It's a demand-speed signal, not time-to-keys
+   (add ~30–45 days for the close).
+
+**Data-quality requirements (QA review, 2026-07-30):**
+
+- **Small-sample cities produce garbage percentages.** Of 555 WA cities, a long tail sells 1–3
+  homes/month. Real May 2026 rows: Alger sold 1 home → "100% above list"; Bucoda sold 1 →
+  sale-to-list 0.877; Boulevard Park sold 1 → DOM 359. **Require a minimum sample (~10 sales)
+  before rendering any percentage or ratio; below it, show the raw count instead.**
+- **`NA` is a real value in this file** — 19 rows had `NA` median DOM in May 2026 alone. Parse
+  it as null; never coerce to 0.
+- **`REGION_TYPE` is `place`, which includes Seattle neighborhoods** — "Beacon Hill", "Bryant",
+  and "Cascade Valley" each appear as their own rows alongside "Seattle". City matching against
+  `criteria.allowed_cities` will collide with these; match deliberately.
 
 ### NOT building (explicitly out of scope)
 - Mobile app (web is sufficient)
