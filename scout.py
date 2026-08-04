@@ -26,6 +26,7 @@ from rich.table import Table
 from rich import box
 
 from pipeline import run, run_from_analyzed
+from tools import market_trends
 from tools.chat_intake import run_chat_intake
 from tools.models import InvestmentConfig, Shortlist
 
@@ -195,7 +196,34 @@ def main() -> None:
         action="store_true",
         help="Describe your investment criteria in plain English (requires ANTHROPIC_API_KEY)",
     )
+    parser.add_argument(
+        "--market-refresh",
+        metavar="STATE",
+        help=(
+            "Refresh the local area-market slice for a state (e.g. WA), then exit. "
+            "Downloads ~950MB from Redfin — run monthly, not per search."
+        ),
+    )
     args = parser.parse_args()
+
+    # --market-refresh: batch data refresh, no config needed
+    if args.market_refresh:
+        state = args.market_refresh.upper()
+        console.print(
+            f"\n[bold]Refreshing area-market data[/bold] · {state}\n"
+            "[dim]Downloading ~950MB from Redfin and filtering — this takes a few "
+            "minutes.[/dim]"
+        )
+        try:
+            dest = market_trends.refresh(state=state)
+        except Exception as e:
+            console.print(f"[red]Market refresh failed: {e}[/red]")
+            console.print("[dim]The previous slice (if any) is unchanged.[/dim]")
+            sys.exit(1)
+
+        rows = max(0, sum(1 for _ in dest.open(encoding="utf-8")) - 1)
+        console.print(f"[green]✓[/green] {rows:,} rows written to {dest}")
+        return
 
     # --from-analyzed: re-run ranking on a previously saved analyzed JSON file
     if args.from_analyzed:

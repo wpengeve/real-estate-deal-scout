@@ -31,7 +31,7 @@ Last updated: 2026-07-21
 
 ### Infra / docs
 - **All API keys present** — Anthropic, Google Maps, HUD, NREL, Rentcast, ScraperAPI, Walk Score
-- **298 tests passing**
+- **369 tests passing**
 - **Architecture docs** — `ARCHITECTURE.md` + `ARCHITECTURE.html`
 
 ---
@@ -155,14 +155,31 @@ and the site-wide Terms of Use are the only governing document found. Attribute 
 source on any page that displays these numbers, and resolve terms with `econdata@redfin.com`
 before this goes public-facing. Not a blocker for local/internal work.
 
-**MVP (unblocked — ready to build):**
+**MVP — the in-report strip is built and shipped (2026-08-03):**
 - [x] Verify data source (fields, granularity, license)
-- [ ] `tools/market_trends.py` — monthly download → filter to target state/cities → persist locally
+- [x] `tools/market_trends.py` — batch download → filter to state → local slice, with
+      lazy in-process index and graceful degradation when no slice exists
+- [x] `scout.py --market-refresh <STATE>` — manual refresh (no worker infra invented;
+      that decision stays with Phase 3)
+- [x] Inline "market snapshot" strip in each deal report — months of supply + temperature,
+      sale-to-list, % above ask, price drops, median days to contract, and the deal's
+      $/sqft vs the city median (the part a generic dashboard can't show)
+- [x] Redfin source attribution in the strip
+- [x] Minimum-sample threshold (10 sales) + `NA` handling before any percentage renders
+- [x] 64 tests, no network (gzip fixture for refresh, tmp_path slices for lookup)
+
+**Not built — pending the CEO call on whether the standalone dashboard exists at all
+(see the competitive reality check above):**
 - [ ] `/market?area=…` route in `app.py`
-- [ ] Dashboard page: sale-to-list %, % over/under asking, median DOM, inventory (Seattle/Kirkland/Redmond)
-- [ ] Redfin source attribution in the report/dashboard footer
-- [ ] Minimum-sample threshold + `NA` handling before any percentage renders (see QA below)
-- [ ] Later: inline "market snapshot" strip in each deal report for area context
+- [ ] Standalone dashboard page for Seattle/Kirkland/Redmond
+
+**Follow-ups surfaced during the build:**
+- [ ] Feed market context into the *ranker*, not just the report — the moat example
+      ("an over-ask offer pushes cap rate below your floor") needs it in the narrative,
+      which means threading it through DealNarrative rather than looking it up at render time
+- [ ] Confirm upstream refresh cadence before automating (see Recency above)
+- [ ] Deployment sizing: the 954 MB refresh needs disk/memory that small instances
+      may not have — couples to Active P1
 
 **Metric definitions (verbatim, Redfin methodology) and display caveats:**
 

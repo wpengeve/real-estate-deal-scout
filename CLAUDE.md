@@ -6,7 +6,7 @@ A Python project for scouting real estate deals.
 
 ```bash
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[dev]"     # dependencies live in pyproject.toml — there is no requirements.txt
 ```
 
 ## gstack

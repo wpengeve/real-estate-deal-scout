@@ -78,6 +78,25 @@ python scout.py --from-analyzed outputs/20260322-123456_analyzed.json
 
 Set `ranker: mock` in `config.yaml`, then `python scout.py`.
 
+**Refresh area-market data (optional, monthly):**
+
+```bash
+python scout.py --market-refresh WA
+```
+
+Adds a "Market Context" strip to each deal in the report — months of supply,
+sale-to-list ratio, share sold above asking, median days to contract, and how the
+home's $/sqft compares to its city median.
+
+Source is the free [Redfin Data Center](https://www.redfin.com/news/data-center/)
+city market tracker: no API key, no quota. The download is ~950 MB and the upstream
+file is unsorted by region, so this is a batch refresh — run it monthly, not per
+search. The filtered slice lands in `data/market_trends_<STATE>.tsv` (gitignored).
+
+Reports work fine without it; the strip simply doesn't appear until you refresh.
+Note the data is monthly and typically runs 1–2 months behind, and percentages are
+hidden for cities with fewer than 10 recorded sales in the period.
+
 ## Configuration
 
 Edit `config.yaml` to tune your investment criteria:

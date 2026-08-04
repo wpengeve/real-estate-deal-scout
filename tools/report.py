@@ -20,6 +20,7 @@ from pathlib import Path
 
 from urllib.parse import quote
 
+from tools import market_trends
 from tools.models import DealNarrative, FinancialAssumptions, Shortlist
 from tools.solar import solar_score
 
@@ -222,6 +223,127 @@ def _render_appreciation(deal: DealNarrative) -> str:
     <span class="ap-score" style="color:{color}" title="{score}/5">{stars}</span>
   </div>
   <ul class="ap-signals">{items}</ul>
+</div>"""
+
+
+_TEMPERATURE_COLOR = {
+    "Seller's market": "#dc2626",
+    "Balanced market": "#ca8a04",
+    "Buyer's market": "#16a34a",
+}
+
+
+def _market_tile(label: str, value: str, hint: str = "") -> str:
+    title = f' title="{hint}"' if hint else ""
+    return (
+        f'<div class="mkt-tile"{title}>'
+        f'<div class="mkt-tile-label">{label}</div>'
+        f'<div class="mkt-tile-value">{value}</div>'
+        f"</div>"
+    )
+
+
+def _render_market_snapshot(deal: DealNarrative) -> str:
+    """
+    Area market context for the city this deal sits in.
+
+    Renders nothing when no local slice covers the city — the strip is additive
+    context, never a hard dependency (run `scout.py market-refresh` to populate).
+
+    Percentages are suppressed below market_trends.MIN_SALES_FOR_RATES, because
+    "100% sold above list" computed from a single sale is worse than showing
+    nothing. Price drops are always shown next to sale-to-list: both price
+    metrics use the *final* list price, so a home that cut its price and sold at
+    the reduced ask still scores ~1.0, and the drop rate is the counterweight.
+    """
+    snap = market_trends.snapshot_for_address(deal.address)
+    if snap is None:
+        return ""
+
+    tiles: list[str] = []
+
+    temperature = snap.market_temperature
+    if temperature and snap.months_of_supply is not None:
+        color = _TEMPERATURE_COLOR.get(temperature, "#64748b")
+        tiles.append(
+            f'<div class="mkt-tile" title="Months of supply: under 3 favours sellers, over 6 favours buyers.">'
+            f'<div class="mkt-tile-label">Market</div>'
+            f'<div class="mkt-tile-value" style="color:{color}">{temperature}'
+            f'<span class="mkt-sub"> · {snap.months_of_supply:.1f} mo supply</span></div>'
+            f"</div>"
+        )
+
+    if snap.has_enough_sales:
+        if snap.sale_to_list is not None:
+            pct = (snap.sale_to_list - 1) * 100
+            direction = "over" if pct >= 0 else "under"
+            tiles.append(_market_tile(
+                "Sale-to-list",
+                f"{snap.sale_to_list:.3f}<span class=\"mkt-sub\"> · {abs(pct):.1f}% {direction} ask</span>",
+                "Average ratio of final sale price to final list price, for homes that "
+                "closed this period. Uses the final list price, so price cuts are not "
+                "reflected here — see price drops.",
+            ))
+        if snap.pct_above_list is not None:
+            tiles.append(_market_tile(
+                "Sold above ask",
+                f"{snap.pct_above_list:.0%}",
+                "Share of homes that closed above their most recent list price.",
+            ))
+        if snap.pct_price_drops is not None:
+            tiles.append(_market_tile(
+                "Price drops",
+                f"{snap.pct_price_drops:.0%}",
+                "Share of active listings that cut their price — the counterweight to "
+                "sale-to-list, which is measured against the reduced price.",
+            ))
+
+    if snap.median_dom is not None:
+        tiles.append(_market_tile(
+            "Median days to contract",
+            f"{snap.median_dom:.0f}",
+            "Median days from listing to going under contract, for homes that went "
+            "pending this period. Closing typically adds another 30-45 days.",
+        ))
+
+    if not tiles:
+        return ""
+
+    # Deal-vs-market: the part a generic market dashboard cannot show.
+    comparison = ""
+    if deal.price and deal.sqft and snap.median_ppsf:
+        deal_ppsf = deal.price / deal.sqft
+        delta = (deal_ppsf / snap.median_ppsf - 1) * 100
+        if abs(delta) < 1:
+            phrase = f"in line with the {snap.city} median"
+            color = "#475569"
+        else:
+            word = "above" if delta > 0 else "below"
+            color = "#b45309" if delta > 0 else "#15803d"
+            phrase = f"{abs(delta):.0f}% {word} the {snap.city} median"
+        comparison = (
+            f'<div class="mkt-compare">This home is <strong>${deal_ppsf:,.0f}/sqft</strong> — '
+            f'<span style="color:{color}">{phrase}</span> of ${snap.median_ppsf:,.0f}/sqft.</div>'
+        )
+
+    sample_note = ""
+    if not snap.has_enough_sales:
+        sold = snap.homes_sold if snap.homes_sold is not None else 0
+        sample_note = (
+            f'<div class="mkt-note">Only {sold} '
+            f"{'home' if sold == 1 else 'homes'} sold here this period — too few for "
+            f"reliable sale-price percentages, so they are hidden.</div>"
+        )
+
+    return f"""<div class="market-snapshot">
+  <div class="mkt-header">
+    <span class="mkt-title">Market Context · {snap.city}, {snap.state}</span>
+    <span class="mkt-asof">data as of {snap.period_end}</span>
+  </div>
+  <div class="mkt-tiles">{"".join(tiles)}</div>
+  {comparison}
+  {sample_note}
+  <div class="mkt-source">Area data provided by Redfin. Monthly; typically 1–2 months behind.</div>
 </div>"""
 
 
@@ -751,6 +873,7 @@ def _render_deal(deal: DealNarrative, idx: int, purpose: str = "rental") -> str:
     {_render_schools(deal)}
     {_render_zoning_potential(deal)}
     {_render_appreciation(deal)}
+    {_render_market_snapshot(deal)}
 
     {redfin_btn}
   </div>
@@ -1398,6 +1521,46 @@ body {{
   margin: 0; padding-left: 1rem;
   font-size: 0.775rem; color: #64748b; line-height: 1.7;
 }}
+
+/* ── Market context strip ── */
+.market-snapshot {{
+  border-top: 1px solid #f1f5f9;
+  padding-top: 0.875rem;
+  margin-top: 0.875rem;
+}}
+.mkt-header {{
+  display: flex; align-items: baseline; gap: 0.5rem;
+  flex-wrap: wrap; margin-bottom: 0.6rem;
+}}
+.mkt-title {{
+  font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: #475569;
+}}
+.mkt-asof {{ font-size: 0.7rem; color: #94a3b8; margin-left: auto; }}
+.mkt-tiles {{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem;
+}}
+.mkt-tile {{
+  background: #f8fafc; border: 1px solid #eef2f7;
+  border-radius: 8px; padding: 0.5rem 0.625rem;
+}}
+.mkt-tile-label {{
+  font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: #94a3b8; margin-bottom: 0.15rem;
+}}
+.mkt-tile-value {{ font-size: 0.9rem; font-weight: 700; color: #1e293b; }}
+.mkt-sub {{ font-size: 0.7rem; font-weight: 500; color: #64748b; }}
+.mkt-compare {{
+  margin-top: 0.6rem; font-size: 0.8rem; color: #475569; line-height: 1.6;
+}}
+.mkt-note {{
+  margin-top: 0.6rem; font-size: 0.75rem; color: #92400e;
+  background: #fffbeb; border: 1px solid #fde68a;
+  border-radius: 6px; padding: 0.4rem 0.55rem;
+}}
+.mkt-source {{ margin-top: 0.5rem; font-size: 0.68rem; color: #94a3b8; }}
 
 /* ── Assumption sliders ── */
 .sliders-bar {{
