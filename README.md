@@ -98,6 +98,11 @@ Re-running is cheap: it checks the upstream `Last-Modified` first and skips the
 download when Redfin hasn't published anything new (`--force` overrides). Redfin's
 monthly files publish on an irregular schedule, so this is safe to run whenever.
 
+The download is streamed and never stored — a full refresh peaks at ~61 MB of memory,
+takes under a minute, and leaves a ~7 MB slice. It runs comfortably on any host size.
+Set `MARKET_TRENDS_DIR` to keep the slice on a persistent volume so it survives
+redeploys; it defaults to `data/`.
+
 Reports work fine without it; the strip simply doesn't appear until you refresh.
 Note the data is monthly and typically runs 1–2 months behind, and percentages are
 hidden for cities with fewer than 10 recorded sales in the period.

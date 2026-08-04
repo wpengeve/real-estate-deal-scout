@@ -34,6 +34,7 @@ import csv
 import gzip
 import json
 import logging
+import os
 import urllib.request
 from datetime import date
 from pathlib import Path
@@ -139,9 +140,22 @@ def parse_city_state(address: str | None) -> tuple[str, str] | None:
 
 # ── Refresh (batch) ───────────────────────────────────────────────────────────
 
+def _default_data_dir() -> Path:
+    """
+    Where slices live when the caller doesn't say.
+
+    MARKET_TRENDS_DIR lets a deployment keep the slice somewhere other than the
+    repo's data/ — a mounted volume, or a read-only path baked into an image —
+    without the refresh and the app disagreeing about where it is. Read lazily
+    so load_dotenv() timing doesn't matter.
+    """
+    override = os.getenv("MARKET_TRENDS_DIR")
+    return Path(override) if override else _DATA_DIR
+
+
 def slice_path(state: str, data_dir: Path | None = None) -> Path:
     """Local path of the filtered slice for a state."""
-    base = data_dir if data_dir is not None else _DATA_DIR
+    base = data_dir if data_dir is not None else _default_data_dir()
     return base / f"market_trends_{state.upper()}.tsv"
 
 

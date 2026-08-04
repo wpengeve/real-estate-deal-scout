@@ -9,6 +9,7 @@ including the small-sample and NA cases that motivated the guards.
 import gzip
 import io
 import json
+from pathlib import Path
 
 import pytest
 
@@ -117,6 +118,36 @@ def _write_slice(data_dir, rows=None, state="WA"):
         lines.append("\t".join(row.get(col, "") for col in mt._KEPT_COLUMNS))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+# ── slice location ────────────────────────────────────────────────────────────
+
+def test_slice_defaults_to_data_dir(monkeypatch):
+    monkeypatch.delenv("MARKET_TRENDS_DIR", raising=False)
+    assert mt.slice_path("WA") == Path("data/market_trends_WA.tsv")
+
+
+def test_market_trends_dir_env_overrides_default(monkeypatch, tmp_path):
+    """A deployment may keep the slice on a mounted volume, not in the repo."""
+    monkeypatch.setenv("MARKET_TRENDS_DIR", str(tmp_path))
+    assert mt.slice_path("WA") == tmp_path / "market_trends_WA.tsv"
+
+
+def test_explicit_data_dir_beats_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("MARKET_TRENDS_DIR", "/somewhere/else")
+    assert mt.slice_path("WA", data_dir=tmp_path) == tmp_path / "market_trends_WA.tsv"
+
+
+def test_env_override_is_read_lazily(monkeypatch, tmp_path):
+    """Set after import must still take effect — load_dotenv() runs late."""
+    _write_slice(tmp_path)
+    monkeypatch.setenv("MARKET_TRENDS_DIR", str(tmp_path))
+    assert snapshot_for_city("Seattle", "WA") is not None
+
+
+def test_state_code_is_normalised_in_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("MARKET_TRENDS_DIR", str(tmp_path))
+    assert mt.slice_path("wa").name == "market_trends_WA.tsv"
 
 
 # ── parse_city_state ──────────────────────────────────────────────────────────

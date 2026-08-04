@@ -190,10 +190,28 @@ this is roughly a day's work if that call is ever reversed.
 - [ ] ~~`/market?area=…` route in `app.py`~~
 - [ ] ~~Standalone dashboard page for Seattle/Kirkland/Redmond~~
 
-**Remaining follow-up:**
-- [ ] Deployment sizing: the ~950 MB refresh needs disk/memory that small instances may not
-      have — couples to Active P1. Likely answer: refresh locally and ship the ~15 MB slice,
-      rather than paying for a bigger box.
+**Deployment sizing — MEASURED 2026-08-03. Not a constraint; the earlier concern was wrong.**
+The worry was that a ~950 MB download needing "several GB" would not fit a small instance.
+Measured on a real full refresh (`/usr/bin/time -l`):
+
+| | Measured |
+|---|---|
+| Peak resident memory | **61 MB** |
+| Wall time | 55 s (31 s CPU) |
+| Slice written to disk | **7.1 MB** |
+| 950 MB file stored on disk | never — streamed and discarded |
+
+Because `refresh()` streams the gzip and writes only the filtered rows, the big file never
+lands on disk and never accumulates in memory. It runs on any tier, including free 256 MB
+instances. **No need to refresh locally and ship the slice**, though that remains an option
+if a host meters bandwidth (~950 MB per *published* update, and the conditional check makes
+every other run ~0.5 s and near-zero bytes).
+
+The one real deployment note is ephemeral disk: a 7.1 MB slice vanishes on redeploy. Either
+re-run the command after deploying, or set **`MARKET_TRENDS_DIR`** to a persistent volume
+(added 2026-08-03; defaults to `data/`).
+- [x] Measure actual refresh footprint
+- [x] `MARKET_TRENDS_DIR` env override so the slice can live on a mounted volume
 
 **Metric definitions (verbatim, Redfin methodology) and display caveats:**
 
