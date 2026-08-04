@@ -4,6 +4,34 @@ Last updated: 2026-08-03
 
 ---
 
+## Status at a glance
+
+*Read this bit to catch up; everything below is the detail.*
+
+**Working today, end to end, on a laptop.** Describe what you want in plain English (or edit
+`config.yaml`) → the pipeline pulls live listings, screens them, enriches with rent/schools/
+solar/zoning data, runs the financial analysis against *your* down payment and rate, flags
+risks, and produces an AI-ranked HTML report with maps, live sliders, and area market context.
+393 tests passing.
+
+**Not deployed.** It runs on your machine only — there's no URL to send anyone. That's the
+one thing keeping Phase 1 open, and it's a decision (which host, where reports and accounts
+live), not a bug. Nothing is broken; see **Active → P1**.
+
+**Most recent work (Aug 2026): Market Intelligence.** Every deal now shows how its city's
+market is behaving — months of supply, sale-to-list, share sold over asking, days to
+contract — plus how that home's $/sqft compares to the city median. The AI ranker sees the
+same numbers, so narratives can weigh price against the local market. Free Redfin data, no
+API key. Run `python scout.py --market-refresh WA` once to switch it on.
+
+**Decided, so we don't revisit it:** no standalone market dashboard (Redfin already publishes
+one free from the same data), and no worker infrastructure yet (refresh is a manual command).
+
+**Next up when you want it:** P1 deployment. Smaller open items are P2 (tighter listing
+scope) and P3 (school district names).
+
+---
+
 ## Done ✓
 
 ### Data & enrichment

@@ -10,6 +10,10 @@ fetch → screen → enrich → analyze → flag risks → rank + narrate
 
 **Vision:** Evolving from a personal CLI tool into a multi-user real estate investment agent — any user describes their financial situation and goals and gets a personalized ranked shortlist with AI narratives computed for *their* specific numbers.
 
+📋 **Where things stand:** [TODOS.md](TODOS.md) opens with a *Status at a glance* summary — what
+works today, what was built most recently, what's decided, and what's next. Start there to catch
+up without reading code.
+
 ## Features
 
 - **Conversational intake** — `--chat` mode: describe your criteria in plain English; Claude extracts your investment config
@@ -23,6 +27,7 @@ fetch → screen → enrich → analyze → flag risks → rank + narrate
 - **Zoning analysis** — ADU/DADU eligibility, WA HB 1110 duplex rights, subdivision potential, development score 1–5
 - **Appreciation signals** — price-to-rent ratio (GRM), land value %, assessment ratio, renovation candidate flag
 - **Risk flagging** — FEMA flood zones, DOM outliers, HOA exposure, low cap rate
+- **Area market context** — months of supply, sale-to-list, % sold above asking, days to contract, and this home's $/sqft vs the city median (free Redfin data, no API key); the AI ranker sees it too
 - **Claude-powered narration** — ranked shortlist with a written investment thesis per deal
 - **Multiple rankers** — Claude API, Ollama (local LLM), or mock (fully offline)
 - **Interactive HTML report** — live financial sliders, Leaflet map pins, school data, solar, Walk Score
