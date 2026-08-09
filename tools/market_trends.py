@@ -72,9 +72,12 @@ DEFAULT_PROPERTY_TYPE = "All Residential"
 # Keep this many years of history in the local slice (enough for trend lines).
 _HISTORY_YEARS = 3
 
-# city_key -> list of rows, newest period first. Loaded lazily, once.
-_index: dict[str, list[dict]] | None = None
-_index_source: Path | None = None
+# slice path -> (fingerprint, city_key -> rows newest-period-first).
+# Keyed by path so a run spanning two states does not re-parse on every lookup,
+# and fingerprinted on (mtime, size) so a long-lived process (the FastAPI app)
+# picks up a slice refreshed by a separate `scout.py --market-refresh` run
+# instead of serving its first-seen copy until restart.
+_index_cache: dict[Path, tuple[tuple[int, int] | None, dict[str, list[dict]]]] = {}
 
 
 # ── Parsing helpers ───────────────────────────────────────────────────────────
@@ -222,16 +225,29 @@ def refresh(
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".tsv.partial")
 
+    cutoff = f"{date.today().year - history_years}-01-01"
     remote_stamp = upstream_last_modified(source_url)
+
+    # Skip the 950MB download only when the existing slice is genuinely current
+    # *and* usable. Matching the upstream stamp alone is not enough: a truncated
+    # or zero-row slice would match forever and silently serve no market data,
+    # and a caller asking for a different history window or source URL would be
+    # handed the old slice while believing it got what it asked for.
     if not force and dest.exists() and remote_stamp:
-        if _read_meta(state, data_dir).get("last_modified") == remote_stamp:
+        meta = _read_meta(state, data_dir)
+        if (
+            meta.get("last_modified") == remote_stamp
+            and meta.get("cutoff") == cutoff
+            and meta.get("source_url") == source_url
+            and (meta.get("rows") or 0) > 0
+            and dest.stat().st_size > 0
+        ):
             logger.info(
                 "Upstream unchanged since %s — keeping existing slice %s",
                 remote_stamp, dest,
             )
             return dest
 
-    cutoff = f"{date.today().year - history_years}-01-01"
     logger.info("Refreshing market trends for %s from %s", state, source_url)
 
     kept = 0
@@ -268,6 +284,7 @@ def refresh(
         json.dumps({
             "last_modified": remote_stamp,
             "source_url": source_url,
+            "cutoff": cutoff,
             "rows": kept,
         }, indent=2),
         encoding="utf-8",
@@ -283,9 +300,7 @@ def refresh(
 # ── Lookup ────────────────────────────────────────────────────────────────────
 
 def _invalidate_cache() -> None:
-    global _index, _index_source
-    _index = None
-    _index_source = None
+    _index_cache.clear()
 
 
 def _row_to_snapshot(row: dict) -> MarketSnapshot:
@@ -315,6 +330,15 @@ def _row_to_snapshot(row: dict) -> MarketSnapshot:
     )
 
 
+def _slice_fingerprint(path: Path) -> tuple[int, int] | None:
+    """(mtime_ns, size) for a slice, or None when it is missing/unreadable."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
 def _load_index(state: str, data_dir: Path | None = None) -> dict[str, list[dict]]:
     """
     Load the local slice into memory, newest period first per city.
@@ -322,19 +346,20 @@ def _load_index(state: str, data_dir: Path | None = None) -> dict[str, list[dict
     Returns an empty index (never raises) when the slice is missing or
     unreadable — a missing refresh degrades to "no market context", not a crash.
     """
-    global _index, _index_source
-
     path = slice_path(state, data_dir)
-    if _index is not None and _index_source == path:
-        return _index
+    fingerprint = _slice_fingerprint(path)
+
+    cached = _index_cache.get(path)
+    if cached is not None and cached[0] == fingerprint:
+        return cached[1]
 
     index: dict[str, list[dict]] = {}
-    if not path.exists():
+    if fingerprint is None:
         logger.info(
             "No market-trends slice at %s — run `scout.py market-refresh --state %s`",
             path, state,
         )
-        _index, _index_source = index, path
+        _index_cache[path] = (fingerprint, index)
         return index
 
     try:
@@ -347,13 +372,13 @@ def _load_index(state: str, data_dir: Path | None = None) -> dict[str, list[dict
                 index.setdefault(_city_key(city, state_code), []).append(row)
     except Exception as e:
         logger.warning("Could not read market-trends slice %s: %r", path, e)
-        _index, _index_source = {}, path
+        _index_cache[path] = (fingerprint, {})
         return {}
 
     for rows in index.values():
         rows.sort(key=lambda r: _clean(r.get("PERIOD_END")), reverse=True)
 
-    _index, _index_source = index, path
+    _index_cache[path] = (fingerprint, index)
     return index
 
 

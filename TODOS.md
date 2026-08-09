@@ -12,7 +12,7 @@ Last updated: 2026-08-03
 `config.yaml`) → the pipeline pulls live listings, screens them, enriches with rent/schools/
 solar/zoning data, runs the financial analysis against *your* down payment and rate, flags
 risks, and produces an AI-ranked HTML report with maps, live sliders, and area market context.
-393 tests passing.
+402 tests passing.
 
 **Not deployed.** It runs on your machine only — there's no URL to send anyone. That's the
 one thing keeping Phase 1 open, and it's a decision (which host, where reports and accounts
@@ -59,7 +59,7 @@ scope) and P3 (school district names).
 
 ### Infra / docs
 - **All API keys present** — Anthropic, Google Maps, HUD, NREL, Rentcast, ScraperAPI, Walk Score
-- **388 tests passing**
+- **402 tests passing**
 - **Architecture docs** — `ARCHITECTURE.md` + `ARCHITECTURE.html`
 
 ---
@@ -152,7 +152,9 @@ Every metric the pillar needs is present, with MoM and YoY deltas for each:
 `MEDIAN_SALE_PRICE`, `MEDIAN_LIST_PRICE`, `MEDIAN_PPSF`.
 
 Confirmed against live data:
-- **Coverage** — 555 WA cities. Seattle, Bellevue, Kirkland, Redmond all populated.
+- **Coverage** — 558 WA cities in the shipped 3-year slice (555 if narrowed to
+  2024+, the window this check originally used). Seattle, Bellevue, Kirkland,
+  Redmond all populated.
   (Seattle May 2026: sale-to-list 1.008, 30.9% above list, 11 median DOM, 799 sold, 2111 inventory.)
 - **Granularity** — city × month × property type. Property types include
   `Multi-Family (2-4 Unit)`, so rental-investor cuts are possible, not just `All Residential`.
@@ -171,7 +173,9 @@ Confirmed against live data:
 
 **Design constraint — rows are unsorted by region.** Extracting one city means scanning the
 whole 954 MB file, so this must be a **cached monthly batch refresh, never a per-request fetch**.
-Filtering WA to 2024+ yields 30,782 rows / 15 MB — small enough to persist locally
+Filtering WA to 2024+ yields 30,781 rows / 15 MB. Superseded by what actually
+shipped: 3 years of history and 23 of the 58 columns, landing at 43,341 rows /
+7.1 MiB. Either way, small enough to persist locally
 (SQLite table in `scout.db`, or a filtered TSV alongside the existing cache pattern).
 
 **Rentcast — rejected.** `/v1/markets` returned HTTP 403 on the current key (likely paid-tier
@@ -196,12 +200,13 @@ before this goes public-facing. Not a blocker for local/internal work.
       $/sqft vs the city median (the part a generic dashboard can't show)
 - [x] Redfin source attribution in the strip
 - [x] Minimum-sample threshold (10 sales) + `NA` handling before any percentage renders
-- [x] 83 tests, no network (gzip fixture for refresh, tmp_path slices for lookup)
+- [x] 97 tests, no network (gzip fixture for refresh, tmp_path slices for lookup)
 
 **Ranker integration — done (2026-08-03):**
 - [x] Market context threaded through the pipeline (`FlaggedListing.market_context` →
-      `DealNarrative.market_context`), attached at all three entry points (`run`,
-      `run_from_analyzed`, `run_single_property`) from the local slice — no network
+      `DealNarrative.market_context`), attached at all four entry points (`run`,
+      `run_from_analyzed`, `run_single_property`, `run_multi_property`) from the
+      local slice — no network
 - [x] Claude ranking prompt carries an `area_market` object per listing plus guidance
       encoding the caveats (final-list-price, staleness, "work it into Line 2 or 3, never
       add a fourth line"), so narratives can reason about pricing vs the city and expected
@@ -210,6 +215,39 @@ before this goes public-facing. Not a blocker for local/internal work.
       reader — the ranker never sees "100% above list" off one sale
 - [x] Report prefers pipeline-attached context, falling back to a lookup for shortlists
       saved before this existed, so strip and narrative can't disagree
+
+**Independent review — 2026-08-09.** Two subagents audited the pillar: one adversarial code
+review of the whole diff, one verifying every number written into the docs. Six real defects
+found and fixed, all in code the suite already covered and still passed:
+
+| Defect | Effect | Fix |
+|---|---|---|
+| `$/sqft vs city median` bypassed the sample gate | Report printed "100% above the Alger median" from **one sale**, directly above the note saying such figures are hidden. Ranker prompt got the same number with no `rates_withheld` caveat | Gated on `has_enough_sales` in both `report.py` and `pipeline.py` |
+| Refresh skip trusted `exists()` + stamp | A truncated or zero-row slice matched forever: no market data in any report, CLI printing "✓ Already current". Only `--force` recovered | Skip now also requires `rows > 0`, nonzero file size, and matching `cutoff`/`source_url` |
+| `history_years` / `source_url` ignored by skip | Asking for a wider window silently returned the narrow slice | Both recorded in `.meta.json` and compared |
+| Index cache keyed on path only, invalidated in-process | The FastAPI app never calls `refresh()` (that's a separate `scout.py` process), so it served its first-seen slice until restart | Cache fingerprinted on `(mtime_ns, size)` |
+| Single-entry cache | A two-state shortlist re-parsed the 43k-row slice on **every** lookup, blocking inside the event loop | Cache is a dict keyed by path |
+| City/period strings interpolated raw into HTML | `Town & Country` — a real city in the shipped slice — emitted invalid markup | `html.escape()` on all third-party strings |
+
+Nine regression tests added, each verified to fail against the pre-fix code. One existing test
+(`test_small_sample_suppresses_percentages`) was passing by coincidence — its fixture's
+`median_ppsf` happened to equal the deal's $/sqft, so the leak rendered "in line with" instead
+of a percentage. Suite: **402 passing**.
+
+Docs audit: every substantive data claim held (Seattle May 2026 figures exact to the digit, the
+10-sale threshold, the 19 `NA` DOM rows, the 58-column upstream schema, the 954 MiB source, the
+five-tracker timestamp cluster, `MARKET_TRENDS_DIR`/`--market-refresh`/`--force`, gitignore
+status). Five stale *numbers* were wrong and are now corrected: test counts in three places,
+a row count off by one, and "555 cities" which was only true under an unstated 2024+ filter.
+
+Left open deliberately (low severity, none reproduced):
+- [ ] Concurrent refreshes of the same state share one `.partial` path with no lock
+- [ ] `.gitignore` covers `data/market_trends_*.tsv` but not `*.tsv.partial`, so a killed
+      refresh leaves an untracked file
+- [ ] `_clean(PERIOD_BEGIN) < cutoff` is a string compare — a reformatted upstream date would
+      drop every row (now self-healing, since a zero-row slice re-downloads)
+- [ ] Addresses with a country suffix (`…, WA 98118, USA`) parse to `None`, so market context
+      silently never appears; only a run with *zero* matches logs anything
 
 **Standalone dashboard — decided 2026-08-03: NOT building.** Redfin already publishes an
 equivalent free public dashboard from the same data (see the competitive reality check

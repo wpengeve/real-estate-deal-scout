@@ -84,10 +84,12 @@ def test_price_drops_shown_alongside_sale_to_list(patched):
 
 def test_small_sample_suppresses_percentages(patched):
     """Alger's real row: 1 sale reporting 100% above list."""
+    # median_ppsf deliberately differs from the deal's $/sqft (900k/1500 = $600):
+    # an equal value hides a leak behind "in line with", which reads as a pass.
     patched(_snapshot(
         city="Alger", homes_sold=1, pct_above_list=1.0,
         sale_to_list=1.0003, pct_price_drops=0.0, months_of_supply=8.0,
-        median_dom=3.0,
+        median_dom=3.0, median_ppsf=300.0,
     ))
     html = report_mod._render_market_snapshot(_deal(address="1 Rural Rd, Alger, WA 98233"))
 
@@ -97,6 +99,32 @@ def test_small_sample_suppresses_percentages(patched):
     assert "Only 1 home sold" in html
     assert "Buyer's market" in html       # supply-based metrics stay valid
     assert "Median days to contract" in html
+
+
+def test_small_sample_suppresses_ppsf_comparison(patched):
+    """
+    A city median $/sqft from one sale is one house, not a market. Showing
+    "100% above the Alger median" directly above "percentages are hidden"
+    contradicts the note and overstates what the data supports.
+    """
+    patched(_snapshot(city="Alger", homes_sold=1, median_ppsf=300.0))
+    html = report_mod._render_market_snapshot(_deal(address="1 Rural Rd, Alger, WA 98233"))
+
+    assert "mkt-compare" not in html
+    assert "Alger median" not in html
+    assert "Only 1 home sold" in html
+
+
+def test_escapes_city_names_with_markup_characters(patched):
+    """
+    City strings come from a third-party download. "Town & Country" is a real
+    WA city in the shipped slice, and unescaped it emits invalid markup.
+    """
+    patched(_snapshot(city='Town & Country', period_end="2026-05-31"))
+    html = report_mod._render_market_snapshot(_deal())
+
+    assert "Town &amp; Country" in html
+    assert "Town & Country" not in html
 
 
 def test_small_sample_note_pluralises(patched):

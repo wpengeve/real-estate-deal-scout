@@ -104,6 +104,21 @@ def test_prompt_context_withholds_rates_on_small_sample():
     assert ctx["months_of_supply"] == 2.6   # supply metrics stay valid
 
 
+def test_prompt_context_withholds_ppsf_comparison_on_small_sample():
+    """
+    rates_withheld does not disclaim the $/sqft fields, so leaking a one-sale
+    city median here hands the model a precise-looking number with nothing
+    marking it unreliable.
+    """
+    f = _flagged(price=900_000.0, sqft=1_500)
+    f.market_context = _snapshot(city="Alger", homes_sold=1, median_ppsf=300.0)
+    ctx = pipeline_mod._market_context_for_prompt(f)
+
+    assert "city_median_ppsf" not in ctx
+    assert "ppsf_vs_city_median_pct" not in ctx
+    assert ctx["rates_withheld"]
+
+
 def test_prompt_context_compares_price_per_sqft():
     f = _flagged(price=900_000.0, sqft=1_500)      # $600/sqft
     f.market_context = _snapshot(median_ppsf=500.0)

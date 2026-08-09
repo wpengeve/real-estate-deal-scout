@@ -497,3 +497,96 @@ def test_refresh_invalidates_cached_index(tmp_path, monkeypatch):
     mt.refresh(state="WA", data_dir=tmp_path)
 
     assert snapshot_for_city("Seattle", "WA", data_dir=tmp_path).period_end == "2026-05-31"
+
+
+def test_truncated_slice_forces_download_despite_matching_stamp(tmp_path, monkeypatch):
+    """
+    A zero-byte slice must not be treated as current.
+
+    Deleting the slice already forces a re-download, but a *truncated* one has
+    the harder failure mode: it satisfies exists() and the stamp matches, so the
+    skip path would return it forever while every lookup silently comes back
+    empty and the CLI keeps printing "Already current".
+    """
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    dest = mt.refresh(state="WA", data_dir=tmp_path)
+    dest.write_text("", encoding="utf-8")
+
+    mt.refresh(state="WA", data_dir=tmp_path)
+    assert calls["GET"] == 2
+    assert dest.stat().st_size > 0
+
+
+def test_zero_row_slice_forces_download(tmp_path, monkeypatch):
+    """
+    A refresh that legitimately kept 0 rows (wrong state, upstream column
+    rename, a date-format change tripping the cutoff compare) must retry rather
+    than pin the empty result in place until someone passes --force.
+    """
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    mt.refresh(state="ZZ", data_dir=tmp_path)   # no rows match this state
+    assert calls["GET"] == 1
+
+    mt.refresh(state="ZZ", data_dir=tmp_path)
+    assert calls["GET"] == 2, "an empty slice must not count as current"
+
+
+def test_widening_history_window_forces_download(tmp_path, monkeypatch):
+    """
+    The skip check compares the upstream stamp; a caller asking for more history
+    than the slice holds would otherwise be handed the narrow one and told it
+    was current.
+    """
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    mt.refresh(state="WA", data_dir=tmp_path, history_years=3)
+    assert calls["GET"] == 1
+
+    mt.refresh(state="WA", data_dir=tmp_path, history_years=10)
+    assert calls["GET"] == 2
+
+
+def test_changed_source_url_forces_download(tmp_path, monkeypatch):
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    mt.refresh(state="WA", data_dir=tmp_path)
+    mt.refresh(state="WA", data_dir=tmp_path, source_url="https://example.test/other.tsv.gz")
+    assert calls["GET"] == 2
+
+
+def test_lookup_picks_up_a_slice_rewritten_by_another_process(tmp_path):
+    """
+    The web app never calls refresh() — `scout.py --market-refresh` is a separate
+    process, so in-process cache invalidation never fires there. Without an
+    mtime check the server would serve its first-seen slice until restart.
+    """
+    _write_slice(tmp_path, rows=[_ROWS[1]])
+    assert snapshot_for_city("Seattle", "WA", data_dir=tmp_path).period_end == "2026-04-30"
+
+    _write_slice(tmp_path, rows=[_ROWS[0]])   # stands in for the other process
+    assert snapshot_for_city("Seattle", "WA", data_dir=tmp_path).period_end == "2026-05-31"
+
+
+def test_alternating_states_do_not_thrash_the_cache(tmp_path, monkeypatch):
+    """
+    A shortlist spanning two states re-parsed the whole slice on every lookup
+    when the cache held a single path. The slice is ~43k rows in production and
+    this runs inside the request path.
+    """
+    _write_slice(tmp_path, rows=_ROWS)
+    _write_slice(tmp_path, rows=[{**_ROWS[0], "CITY": "Portland", "STATE_CODE": "OR"}],
+                 state="OR")
+
+    parses = {"n": 0}
+    real_open = Path.open
+
+    def counting_open(self, *args, **kwargs):
+        if self.suffix == ".tsv":
+            parses["n"] += 1
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", counting_open)
+
+    for _ in range(5):
+        snapshot_for_city("Seattle", "WA", data_dir=tmp_path)
+        snapshot_for_city("Portland", "OR", data_dir=tmp_path)
+
+    assert parses["n"] == 2, "each slice should be parsed once, not once per lookup"

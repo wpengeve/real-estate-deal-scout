@@ -115,7 +115,9 @@ def _market_context_for_prompt(f: FlaggedListing) -> dict | None:
     else:
         context["rates_withheld"] = "too few sales this month to be meaningful"
 
-    if m.median_ppsf:
+    # Same sample gate as the rates above: a city median $/sqft computed from a
+    # single sale would let the ranker reason off a one-home "market".
+    if m.has_enough_sales and m.median_ppsf:
         context["city_median_ppsf"] = round(m.median_ppsf)
         if f.listing.price and f.listing.sqft:
             listing_ppsf = f.listing.price / f.listing.sqft
