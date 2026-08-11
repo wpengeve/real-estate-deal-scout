@@ -12,7 +12,7 @@ Last updated: 2026-08-03
 `config.yaml`) → the pipeline pulls live listings, screens them, enriches with rent/schools/
 solar/zoning data, runs the financial analysis against *your* down payment and rate, flags
 risks, and produces an AI-ranked HTML report with maps, live sliders, and area market context.
-407 tests passing.
+420 tests passing.
 
 **Not deployed.** It runs on your machine only — there's no URL to send anyone. That's the
 one thing keeping Phase 1 open, and it's a decision (which host, where reports and accounts
@@ -59,7 +59,7 @@ scope) and P3 (school district names).
 
 ### Infra / docs
 - **All API keys present** — Anthropic, Google Maps, HUD, NREL, Rentcast, ScraperAPI, Walk Score
-- **407 tests passing**
+- **420 tests passing**
 - **Architecture docs** — `ARCHITECTURE.md` + `ARCHITECTURE.html`
 
 ---
@@ -272,10 +272,17 @@ skips in ~1s with no download. Five more tests added, this time driving `scout.m
 covering new behaviour were each confirmed to fail against the pre-fix code. Suite: **407**.
 
 Follow-ups this pass raised, not blocking:
-- [ ] **Escaping is now inconsistent in `report.py`.** The market strip escapes its third-party
-      strings; `deal.address`, `deal.zoning`, `deal.home_type`, `photo_url`/`listing_url` (into
-      attributes) and the LLM `narrative` do not — all from the same Redfin feed. Uniformly
-      unescaped was at least predictable; half-escaped is worse for the next reader.
+- [x] **Escaping made consistent across `report.py` (2026-08-11).** Added `_esc()` and routed
+      every untrusted interpolation through it: address, zoning, home type, flood zone, school
+      names, verdict-reason bullets, the LLM narrative, and the photo/listing URLs (which sit in
+      attributes, so an embedded quote could start a new one). Writing the tests turned up a
+      site the review missed — flood zone also reaches the risk-flag bullets — so those are now
+      escaped at the single render point rather than at the ~10 places that build a reason.
+      Separately, the Leaflet map payload was `json.dumps` output sitting raw inside `<script>`:
+      `json.dumps` escapes quotes but not `</script>`, so an address or narrative containing it
+      would close the block early and spill the rest into the document as markup. `<` is now
+      unicode-escaped in that payload. 13 tests added, 12 of which fail against the pre-fix code
+      (the 13th is the guard that clean data is not mangled).
 - [ ] **Cache ceiling rose.** ~76MB resident per cached state index (measured, WA). Pre-fix the
       cache held one; now one per state slice on disk, no eviction. Single-state installs are
       unaffected — a multi-state deployment pays 76MB × N. A 2-entry LRU would keep the win.

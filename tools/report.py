@@ -45,6 +45,30 @@ _VERDICT_COLOR = {
     "pass":                 {"bg": "#fee2e2", "text": "#7f1d1d", "border": "#fca5a5"},
 }
 
+def _esc(value) -> str:
+    """
+    Escape a value for an HTML text or attribute context.
+
+    Listing fields (address, zoning, home type, URLs) come from the Redfin feed
+    and narratives come from the model; neither is trusted markup. Everything
+    interpolated into the page that is not a number or one of our own literals
+    goes through here.
+    """
+    return escape(str(value), quote=True) if value is not None else ""
+
+
+def _json_for_script(payload) -> str:
+    """
+    Serialise data for embedding inside a <script> block.
+
+    json.dumps alone is not enough: a "</script>" inside any string value ends
+    the block early and drops the rest of the payload into the document as
+    markup. Escaping "<" as \\u003c is inert in JSON and removes the only
+    sequence that can break out.
+    """
+    return json.dumps(payload).replace("<", "\\u003c")
+
+
 def _verdict_style(narrative: str) -> dict:
     """Pick a color style based on the verdict keyword in the narrative."""
     low = narrative.lower()
@@ -125,15 +149,15 @@ def _photo_div(deal: DealNarrative) -> str:
     target = deal.listing_url or f"https://www.redfin.com/search#location={quote(deal.address)}"
 
     if deal.photo_url:
-        return f"""<a href="{target}" target="_blank" rel="noopener">
-  <img src="{deal.photo_url}" alt="{deal.address}" class="listing-photo" loading="lazy" />
+        return f"""<a href="{_esc(target)}" target="_blank" rel="noopener">
+  <img src="{_esc(deal.photo_url)}" alt="{_esc(deal.address)}" class="listing-photo" loading="lazy" />
 </a>"""
 
     # Fallback: address text on a neutral background
     query = quote(deal.address)
     return f"""<a href="https://www.google.com/maps/search/?api=1&query={query}"
    target="_blank" rel="noopener" class="photo-placeholder">
-  <span>📍 {deal.address.split(',')[0]}</span>
+  <span>📍 {_esc(deal.address.split(',')[0])}</span>
 </a>"""
 
 
@@ -196,8 +220,8 @@ def _render_schools(deal: DealNarrative) -> str:
             color = "#16a34a" if pct >= 70 else "#f59e0b" if pct >= 50 else "#dc2626"
             score_html = f' <span style="color:{color};font-weight:700">{pct:.0f}%</span>'
         rows.append(
-            f'<li><span class="school-level">{s.level[:2].upper()}</span>'
-            f' {s.name}{score_html}'
+            f'<li><span class="school-level">{_esc(s.level[:2].upper())}</span>'
+            f' {_esc(s.name)}{score_html}'
             f'{f" · {dist}" if dist else ""}</li>'
         )
 
@@ -566,7 +590,9 @@ def _render_verdict_reasons(deal: DealNarrative, purpose: str = "rental") -> str
     reasons = _verdict_reasons(deal, purpose)
     if not reasons:
         return ""
-    items = "".join(f"<li>{r}</li>" for r in reasons)
+    # Reasons interpolate feed values (flood zone) and pipeline risk flags, so
+    # escape here rather than at each of the ~10 places that build one.
+    items = "".join(f"<li>{_esc(r)}</li>" for r in reasons)
     return f'<ul class="verdict-reasons">{items}</ul>'
 
 
@@ -785,16 +811,16 @@ def _render_deal(deal: DealNarrative, idx: int, purpose: str = "rental") -> str:
 
     redfin_btn = ""
     if deal.listing_url:
-        redfin_btn = f'<a href="{deal.listing_url}" target="_blank" rel="noopener" class="redfin-btn">View on Redfin →</a>'
+        redfin_btn = f'<a href="{_esc(deal.listing_url)}" target="_blank" rel="noopener" class="redfin-btn">View on Redfin →</a>'
 
     photo_html = _photo_div(deal)
-    narrative_html = "".join(f"<p>{line}</p>" for line in _narrative_body(deal.narrative))
+    narrative_html = "".join(f"<p>{_esc(line)}</p>" for line in _narrative_body(deal.narrative))
     _vl = _verdict_label(deal.narrative)
     if _vl:
         _vs = _verdict_style(deal.narrative)
         verdict_html = (
             f'<div class="verdict-banner" style="background:{_vs["bg"]};'
-            f'color:{_vs["text"]};border-color:{_vs["border"]}">{_vl}</div>'
+            f'color:{_vs["text"]};border-color:{_vs["border"]}">{_esc(_vl)}</div>'
         )
     else:
         verdict_html = ""
@@ -815,7 +841,7 @@ def _render_deal(deal: DealNarrative, idx: int, purpose: str = "rental") -> str:
         <div class="metric-value">{_fmt_currency(deal.monthly_piti)}/mo</div>
       </div>
       {f'<div class="metric"><div class="metric-label">HOA</div><div class="metric-value negative">{_fmt_currency(deal.hoa_fee)}/mo</div></div>' if deal.hoa_fee else ""}
-      {f'<div class="metric"><div class="metric-label">Home Type</div><div class="metric-value">{deal.home_type}</div></div>' if deal.home_type else ""}"""
+      {f'<div class="metric"><div class="metric-label">Home Type</div><div class="metric-value">{_esc(deal.home_type)}</div></div>' if deal.home_type else ""}"""
     else:
         financial_metrics = f"""
       <div class="metric">
@@ -835,7 +861,7 @@ def _render_deal(deal: DealNarrative, idx: int, purpose: str = "rental") -> str:
         <div class="metric-value js-cashflow {cf_class}">{_fmt_cashflow(deal.monthly_cashflow)}</div>
       </div>
       {f'<div class="metric"><div class="metric-label">HOA</div><div class="metric-value negative">{_fmt_currency(deal.hoa_fee)}/mo</div></div>' if deal.hoa_fee else ""}
-      {f'<div class="metric"><div class="metric-label">Home Type</div><div class="metric-value">{deal.home_type}</div></div>' if deal.home_type else ""}"""
+      {f'<div class="metric"><div class="metric-label">Home Type</div><div class="metric-value">{_esc(deal.home_type)}</div></div>' if deal.home_type else ""}"""
 
     price_targets_html = "" if purpose == "primary" else _render_price_targets(deal)
 
@@ -847,7 +873,7 @@ def _render_deal(deal: DealNarrative, idx: int, purpose: str = "rental") -> str:
     <div class="card-header">
       <div class="rank-badge">#{deal.rank}</div>
       <div class="card-title-block">
-        <div class="card-address">{deal.address}</div>
+        <div class="card-address">{_esc(deal.address)}</div>
         <div class="card-meta">{beds} &nbsp;/&nbsp; {baths} &nbsp;·&nbsp; {sqft}
           {f"&nbsp;·&nbsp; {lot}" if lot else ""}
           {f"&nbsp;·&nbsp; {year}" if year else ""}
@@ -866,8 +892,8 @@ def _render_deal(deal: DealNarrative, idx: int, purpose: str = "rental") -> str:
       {_render_transit_scores(deal)}
       {_render_solar_metric(deal)}
 
-      {f'<div class="metric"><div class="metric-label">Flood Zone</div><div class="metric-value">{deal.flood_zone}</div></div>' if deal.flood_zone else ""}
-      {f'<div class="metric"><div class="metric-label">Zoning</div><div class="metric-value zoning">{deal.zoning}</div></div>' if deal.zoning else ""}
+      {f'<div class="metric"><div class="metric-label">Flood Zone</div><div class="metric-value">{_esc(deal.flood_zone)}</div></div>' if deal.flood_zone else ""}
+      {f'<div class="metric"><div class="metric-label">Zoning</div><div class="metric-value zoning">{_esc(deal.zoning)}</div></div>' if deal.zoning else ""}
     </div>
 
     {_render_features(deal)}
@@ -895,7 +921,7 @@ def _render_map(shortlist: Shortlist) -> str:
     if not map_deals:
         return ""
 
-    map_data = json.dumps([
+    map_data = _json_for_script([
         {
             "rank": d.rank,
             "address": d.address,
@@ -1010,15 +1036,15 @@ def _render_comparison_table(shortlist: Shortlist) -> str:
         rows.append(
             f'    <tr data-rank="{d.rank}">\n'
             f'      <td class="ct-rank">{d.rank}</td>\n'
-            f'      <td class="ct-address">{street}</td>\n'
+            f'      <td class="ct-address">{_esc(street)}</td>\n'
             f'      <td class="ct-price">{price_str}</td>\n'
             f'      <td class="ct-bedbath">{bed_bath}</td>\n'
             + fin_cells
             + f'      <td class="ct-ws">{ws_str}</td>\n'
             f'      <td class="ct-risk"><span class="risk-badge" style="{risk_style}">'
-            f'{risk_label}</span></td>\n'
+            f'{_esc(risk_label)}</span></td>\n'
             f'      <td class="ct-verdict"><span class="verdict-chip" style="{verdict_style}">'
-            f'{verdict}</span></td>\n'
+            f'{_esc(verdict)}</span></td>\n'
             f'    </tr>'
         )
 
