@@ -497,3 +497,185 @@ def test_refresh_invalidates_cached_index(tmp_path, monkeypatch):
     mt.refresh(state="WA", data_dir=tmp_path)
 
     assert snapshot_for_city("Seattle", "WA", data_dir=tmp_path).period_end == "2026-05-31"
+
+
+def test_truncated_slice_forces_download_despite_matching_stamp(tmp_path, monkeypatch):
+    """
+    A zero-byte slice must not be treated as current.
+
+    Deleting the slice already forces a re-download, but a *truncated* one has
+    the harder failure mode: it satisfies exists() and the stamp matches, so the
+    skip path would return it forever while every lookup silently comes back
+    empty and the CLI keeps printing "Already current".
+    """
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    dest = mt.refresh(state="WA", data_dir=tmp_path)
+    dest.write_text("", encoding="utf-8")
+
+    mt.refresh(state="WA", data_dir=tmp_path)
+    assert calls["GET"] == 2
+    assert dest.stat().st_size > 0
+
+
+def test_zero_row_slice_forces_download(tmp_path, monkeypatch):
+    """
+    A refresh that legitimately kept 0 rows (wrong state, upstream column
+    rename, a date-format change tripping the cutoff compare) must retry rather
+    than pin the empty result in place until someone passes --force.
+    """
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    mt.refresh(state="ZZ", data_dir=tmp_path)   # no rows match this state
+    assert calls["GET"] == 1
+
+    mt.refresh(state="ZZ", data_dir=tmp_path)
+    assert calls["GET"] == 2, "an empty slice must not count as current"
+
+
+def test_widening_history_window_forces_download(tmp_path, monkeypatch):
+    """
+    The skip check compares the upstream stamp; a caller asking for more history
+    than the slice holds would otherwise be handed the narrow one and told it
+    was current.
+    """
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    mt.refresh(state="WA", data_dir=tmp_path, history_years=3)
+    assert calls["GET"] == 1
+
+    mt.refresh(state="WA", data_dir=tmp_path, history_years=10)
+    assert calls["GET"] == 2
+
+
+def test_changed_source_url_forces_download(tmp_path, monkeypatch):
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    mt.refresh(state="WA", data_dir=tmp_path)
+    mt.refresh(state="WA", data_dir=tmp_path, source_url="https://example.test/other.tsv.gz")
+    assert calls["GET"] == 2
+
+
+def test_lookup_picks_up_a_slice_rewritten_by_another_process(tmp_path):
+    """
+    The web app never calls refresh() — `scout.py --market-refresh` is a separate
+    process, so in-process cache invalidation never fires there. Without an
+    mtime check the server would serve its first-seen slice until restart.
+    """
+    _write_slice(tmp_path, rows=[_ROWS[1]])
+    assert snapshot_for_city("Seattle", "WA", data_dir=tmp_path).period_end == "2026-04-30"
+
+    _write_slice(tmp_path, rows=[_ROWS[0]])   # stands in for the other process
+    assert snapshot_for_city("Seattle", "WA", data_dir=tmp_path).period_end == "2026-05-31"
+
+
+def test_alternating_states_do_not_thrash_the_cache(tmp_path, monkeypatch):
+    """
+    A shortlist spanning two states re-parsed the whole slice on every lookup
+    when the cache held a single path. The slice is ~43k rows in production and
+    this runs inside the request path.
+    """
+    _write_slice(tmp_path, rows=_ROWS)
+    _write_slice(tmp_path, rows=[{**_ROWS[0], "CITY": "Portland", "STATE_CODE": "OR"}],
+                 state="OR")
+
+    parses = {"n": 0}
+    real_open = Path.open
+
+    def counting_open(self, *args, **kwargs):
+        if self.suffix == ".tsv":
+            parses["n"] += 1
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", counting_open)
+
+    for _ in range(5):
+        snapshot_for_city("Seattle", "WA", data_dir=tmp_path)
+        snapshot_for_city("Portland", "OR", data_dir=tmp_path)
+
+    assert parses["n"] == 2, "each slice should be parsed once, not once per lookup"
+
+
+# ── CLI gate ──────────────────────────────────────────────────────────────────
+#
+# These drive scout.main() rather than refresh(). The refresh-level tests above
+# all passed while the CLI kept its own weaker copy of the skip rule and
+# returned before refresh() was ever called, so the hardening never ran in
+# production. Testing one layer below the user is how that stayed invisible.
+
+def _run_cli(monkeypatch, tmp_path, argv, payload, last_modified):
+    """Invoke scout.main() with --market-refresh and the network faked."""
+    import scout
+
+    calls = _patch_urlopen(monkeypatch, payload, last_modified=last_modified)
+    monkeypatch.setenv("MARKET_TRENDS_DIR", str(tmp_path))
+    monkeypatch.setattr("sys.argv", ["scout.py"] + argv)
+    scout.main()
+    return calls
+
+
+def test_cli_skips_download_when_slice_is_current(monkeypatch, tmp_path):
+    payload = _gzipped_source(_ROWS)
+    calls = _run_cli(monkeypatch, tmp_path, ["--market-refresh", "WA"], payload, _STAMP)
+    assert calls["GET"] == 1                      # first run downloads
+
+    calls = _run_cli(monkeypatch, tmp_path, ["--market-refresh", "WA"], payload, _STAMP)
+    assert calls["GET"] == 0, "a current slice must not re-download"
+
+
+def test_cli_redownloads_a_truncated_slice(monkeypatch, tmp_path):
+    """
+    The defect this whole change exists to fix, at the layer the user touches.
+
+    A zero-byte slice with a matching timestamp previously satisfied the CLI's
+    own check, so it printed "Already current" forever and no report ever
+    showed market data again.
+    """
+    payload = _gzipped_source(_ROWS)
+    _run_cli(monkeypatch, tmp_path, ["--market-refresh", "WA"], payload, _STAMP)
+    (tmp_path / "market_trends_WA.tsv").write_text("", encoding="utf-8")
+
+    calls = _run_cli(monkeypatch, tmp_path, ["--market-refresh", "WA"], payload, _STAMP)
+    assert calls["GET"] == 1
+    assert (tmp_path / "market_trends_WA.tsv").stat().st_size > 0
+
+
+def test_cli_force_redownloads_a_current_slice(monkeypatch, tmp_path):
+    payload = _gzipped_source(_ROWS)
+    _run_cli(monkeypatch, tmp_path, ["--market-refresh", "WA"], payload, _STAMP)
+
+    calls = _run_cli(
+        monkeypatch, tmp_path, ["--market-refresh", "WA", "--force"], payload, _STAMP
+    )
+    assert calls["GET"] == 1
+
+
+# ── Sidecar migration and the rolling window ──────────────────────────────────
+
+def test_sidecar_without_cutoff_is_grandfathered(tmp_path, monkeypatch):
+    """
+    Sidecars written before `cutoff` was recorded must not force a 950MB
+    migration download on every existing install. Those slices were built by
+    code whose only window was the default, so they are accepted as-is.
+    """
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    mt.refresh(state="WA", data_dir=tmp_path)
+
+    meta_path = tmp_path / "market_trends_WA.meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    del meta["cutoff"]                              # what the old code wrote
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    mt.refresh(state="WA", data_dir=tmp_path)
+    assert calls["GET"] == 1, "a pre-cutoff sidecar must not trigger a re-download"
+
+
+def test_extra_history_is_not_rediscarded_each_january(tmp_path, monkeypatch):
+    """
+    The window is compared by coverage, not equality. A slice holding *more*
+    history than asked for is adequate — otherwise the annual roll of
+    `year - history_years` would re-download 950MB to build a slice with
+    strictly less history than the one it replaced.
+    """
+    calls = _patch_urlopen(monkeypatch, _gzipped_source(_ROWS), last_modified=_STAMP)
+    mt.refresh(state="WA", data_dir=tmp_path, history_years=10)
+    assert calls["GET"] == 1
+
+    mt.refresh(state="WA", data_dir=tmp_path, history_years=3)
+    assert calls["GET"] == 1, "a wider slice already covers a narrower request"

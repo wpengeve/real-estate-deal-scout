@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from html import escape
 from pathlib import Path
 
 from urllib.parse import quote
@@ -313,17 +314,20 @@ def _render_market_snapshot(deal: DealNarrative) -> str:
         return ""
 
     # Deal-vs-market: the part a generic market dashboard cannot show.
+    # Gated on has_enough_sales like the other rates — a median $/sqft drawn from
+    # one sale makes "100% above the city median" out of a single data point.
     comparison = ""
-    if deal.price and deal.sqft and snap.median_ppsf:
+    if snap.has_enough_sales and deal.price and deal.sqft and snap.median_ppsf:
         deal_ppsf = deal.price / deal.sqft
         delta = (deal_ppsf / snap.median_ppsf - 1) * 100
+        city = escape(snap.city)
         if abs(delta) < 1:
-            phrase = f"in line with the {snap.city} median"
+            phrase = f"in line with the {city} median"
             color = "#475569"
         else:
             word = "above" if delta > 0 else "below"
             color = "#b45309" if delta > 0 else "#15803d"
-            phrase = f"{abs(delta):.0f}% {word} the {snap.city} median"
+            phrase = f"{abs(delta):.0f}% {word} the {city} median"
         comparison = (
             f'<div class="mkt-compare">This home is <strong>${deal_ppsf:,.0f}/sqft</strong> — '
             f'<span style="color:{color}">{phrase}</span> of ${snap.median_ppsf:,.0f}/sqft.</div>'
@@ -340,8 +344,8 @@ def _render_market_snapshot(deal: DealNarrative) -> str:
 
     return f"""<div class="market-snapshot">
   <div class="mkt-header">
-    <span class="mkt-title">Market Context · {snap.city}, {snap.state}</span>
-    <span class="mkt-asof">data as of {snap.period_end}</span>
+    <span class="mkt-title">Market Context · {escape(snap.city)}, {escape(snap.state)}</span>
+    <span class="mkt-asof">data as of {escape(snap.period_end)}</span>
   </div>
   <div class="mkt-tiles">{"".join(tiles)}</div>
   {comparison}
