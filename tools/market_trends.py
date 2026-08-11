@@ -44,8 +44,9 @@ from tools.models import MIN_SALES_FOR_RATES, MarketSnapshot
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "MIN_SALES_FOR_RATES", "MarketSnapshot", "refresh", "snapshot_for_city",
-    "snapshot_for_address", "history_for_city", "parse_city_state", "slice_path",
+    "MIN_SALES_FOR_RATES", "MarketSnapshot", "refresh", "is_current",
+    "snapshot_for_city", "snapshot_for_address", "history_for_city",
+    "parse_city_state", "slice_path",
 ]
 
 _SOURCE_URL = (
@@ -173,13 +174,6 @@ def _read_meta(state: str, data_dir: Path | None = None) -> dict:
         return {}
 
 
-def local_last_modified(state: str, data_dir: Path | None = None) -> str | None:
-    """Upstream Last-Modified that the existing local slice was built from."""
-    if not slice_path(state, data_dir).exists():
-        return None
-    return _read_meta(state, data_dir).get("last_modified")
-
-
 def upstream_last_modified(source_url: str = _SOURCE_URL) -> str | None:
     """
     Last-Modified of the upstream file, via a HEAD request. None if unavailable.
@@ -193,6 +187,63 @@ def upstream_last_modified(source_url: str = _SOURCE_URL) -> str | None:
     except Exception as e:
         logger.warning("Could not HEAD %s: %r", source_url, e)
         return None
+
+
+def is_current(
+    state: str,
+    data_dir: Path | None = None,
+    source_url: str = _SOURCE_URL,
+    history_years: int = _HISTORY_YEARS,
+    remote_stamp: str | None = None,
+) -> bool:
+    """
+    True when the local slice can be trusted as up to date, so the ~950MB
+    download can be skipped.
+
+    This is the single definition of "current" — `refresh()` and the CLI both
+    ask it, so the CLI can never skip on weaker grounds than the refresh would.
+
+    Matching the upstream stamp alone is not enough:
+    * a truncated or zero-row slice would match forever, silently serving no
+      market data while the CLI reported success;
+    * a caller asking for more history, or a different source, would be handed
+      the old slice while believing it got what it asked for.
+
+    Passing `remote_stamp` reuses a HEAD already performed; omit it and one is
+    issued here. A HEAD failure means "unknown", which counts as not current.
+    """
+    dest = slice_path(state.upper(), data_dir)
+    if not dest.exists() or dest.stat().st_size == 0:
+        return False
+
+    if remote_stamp is None:
+        remote_stamp = upstream_last_modified(source_url)
+    if not remote_stamp:
+        return False
+
+    meta = _read_meta(state.upper(), data_dir)
+    if meta.get("last_modified") != remote_stamp:
+        return False
+    if meta.get("source_url") != source_url:
+        return False
+    if (meta.get("rows") or 0) <= 0:
+        return False
+
+    # Compare *coverage*, not equality. An earlier cutoff means the slice holds
+    # more history than asked for, which is fine — only a slice that starts
+    # later than required is inadequate. Equality would also re-download every
+    # January, when the rolling window shifts, to produce a slice with strictly
+    # less history than the one it replaced.
+    #
+    # A sidecar with no `cutoff` predates this check. Those slices were built by
+    # code whose only window was the default, so grandfather them instead of
+    # charging every existing install a 950MB migration.
+    stored_cutoff = meta.get("cutoff")
+    required_cutoff = f"{date.today().year - history_years}-01-01"
+    if stored_cutoff is not None and stored_cutoff > required_cutoff:
+        return False
+
+    return True
 
 
 def refresh(
@@ -228,25 +279,14 @@ def refresh(
     cutoff = f"{date.today().year - history_years}-01-01"
     remote_stamp = upstream_last_modified(source_url)
 
-    # Skip the 950MB download only when the existing slice is genuinely current
-    # *and* usable. Matching the upstream stamp alone is not enough: a truncated
-    # or zero-row slice would match forever and silently serve no market data,
-    # and a caller asking for a different history window or source URL would be
-    # handed the old slice while believing it got what it asked for.
-    if not force and dest.exists() and remote_stamp:
-        meta = _read_meta(state, data_dir)
-        if (
-            meta.get("last_modified") == remote_stamp
-            and meta.get("cutoff") == cutoff
-            and meta.get("source_url") == source_url
-            and (meta.get("rows") or 0) > 0
-            and dest.stat().st_size > 0
-        ):
-            logger.info(
-                "Upstream unchanged since %s — keeping existing slice %s",
-                remote_stamp, dest,
-            )
-            return dest
+    if not force and is_current(
+        state, data_dir, source_url, history_years, remote_stamp=remote_stamp
+    ):
+        logger.info(
+            "Upstream unchanged since %s — keeping existing slice %s",
+            remote_stamp, dest,
+        )
+        return dest
 
     logger.info("Refreshing market trends for %s from %s", state, source_url)
 

@@ -12,7 +12,7 @@ Last updated: 2026-08-03
 `config.yaml`) → the pipeline pulls live listings, screens them, enriches with rent/schools/
 solar/zoning data, runs the financial analysis against *your* down payment and rate, flags
 risks, and produces an AI-ranked HTML report with maps, live sliders, and area market context.
-402 tests passing.
+407 tests passing.
 
 **Not deployed.** It runs on your machine only — there's no URL to send anyone. That's the
 one thing keeping Phase 1 open, and it's a decision (which host, where reports and accounts
@@ -59,7 +59,7 @@ scope) and P3 (school district names).
 
 ### Infra / docs
 - **All API keys present** — Anthropic, Google Maps, HUD, NREL, Rentcast, ScraperAPI, Walk Score
-- **402 tests passing**
+- **407 tests passing**
 - **Architecture docs** — `ARCHITECTURE.md` + `ARCHITECTURE.html`
 
 ---
@@ -200,7 +200,7 @@ before this goes public-facing. Not a blocker for local/internal work.
       $/sqft vs the city median (the part a generic dashboard can't show)
 - [x] Redfin source attribution in the strip
 - [x] Minimum-sample threshold (10 sales) + `NA` handling before any percentage renders
-- [x] 97 tests, no network (gzip fixture for refresh, tmp_path slices for lookup)
+- [x] 102 tests, no network (gzip fixture for refresh, tmp_path slices for lookup)
 
 **Ranker integration — done (2026-08-03):**
 - [x] Market context threaded through the pipeline (`FlaggedListing.market_context` →
@@ -223,7 +223,7 @@ found and fixed, all in code the suite already covered and still passed:
 | Defect | Effect | Fix |
 |---|---|---|
 | `$/sqft vs city median` bypassed the sample gate | Report printed "100% above the Alger median" from **one sale**, directly above the note saying such figures are hidden. Ranker prompt got the same number with no `rates_withheld` caveat | Gated on `has_enough_sales` in both `report.py` and `pipeline.py` |
-| Refresh skip trusted `exists()` + stamp | A truncated or zero-row slice matched forever: no market data in any report, CLI printing "✓ Already current". Only `--force` recovered | Skip now also requires `rows > 0`, nonzero file size, and matching `cutoff`/`source_url` |
+| Refresh skip trusted `exists()` + stamp | A truncated or zero-row slice matched forever: no market data in any report, CLI printing "✓ Already current". Only `--force` recovered | Skip now also requires `rows > 0`, nonzero file size, and adequate `cutoff`/`source_url` — see the second review pass below, which found the first attempt at this didn't reach production |
 | `history_years` / `source_url` ignored by skip | Asking for a wider window silently returned the narrow slice | Both recorded in `.meta.json` and compared |
 | Index cache keyed on path only, invalidated in-process | The FastAPI app never calls `refresh()` (that's a separate `scout.py` process), so it served its first-seen slice until restart | Cache fingerprinted on `(mtime_ns, size)` |
 | Single-entry cache | A two-state shortlist re-parsed the 43k-row slice on **every** lookup, blocking inside the event loop | Cache is a dict keyed by path |
@@ -248,6 +248,41 @@ Left open deliberately (low severity, none reproduced):
       drop every row (now self-healing, since a zero-row slice re-downloads)
 - [ ] Addresses with a country suffix (`…, WA 98118, USA`) parse to `None`, so market context
       silently never appears; only a run with *zero* matches logs anything
+
+**Second review pass — 2026-08-11, before merging the fixes.** Two more subagents verified the
+fix commit itself rather than the feature. One found a blocker that invalidated the headline fix:
+
+- **The hardened skip check was unreachable.** `scout.py` kept its own weaker copy of the rule
+  (`local_last_modified == upstream_last_modified`) and `return`ed *before* `refresh()` was
+  called. `scout.py` is the only production caller, so a truncated slice still printed
+  "✓ Already current" with 0 downloads — behaviour byte-identical to before the fix. Every new
+  test called `refresh()` directly, one layer below the bug, so the suite stayed green.
+  Fixed by extracting `market_trends.is_current()` as the single definition of "current" and
+  having both the CLI and `refresh()` ask it. The weaker `local_last_modified()` helper is
+  deleted rather than left around to be reached for again.
+- **Migration cost.** The `cutoff` key didn't exist in sidecars written by the old code, so
+  every existing install would have re-downloaded 950MB once the blocker above was fixed. A
+  missing `cutoff` is now grandfathered.
+- **Annual churn.** `cutoff` derives from `date.today().year`, so equality comparison would
+  re-download every January to produce a slice with *less* history than it replaced. Now
+  compares coverage (`stored <= required`), not equality.
+
+Verified live afterwards: the real CLI against the real slice and its pre-`cutoff` sidecar still
+skips in ~1s with no download. Five more tests added, this time driving `scout.main()`; the three
+covering new behaviour were each confirmed to fail against the pre-fix code. Suite: **407**.
+
+Follow-ups this pass raised, not blocking:
+- [ ] **Escaping is now inconsistent in `report.py`.** The market strip escapes its third-party
+      strings; `deal.address`, `deal.zoning`, `deal.home_type`, `photo_url`/`listing_url` (into
+      attributes) and the LLM `narrative` do not — all from the same Redfin feed. Uniformly
+      unescaped was at least predictable; half-escaped is worse for the next reader.
+- [ ] **Cache ceiling rose.** ~76MB resident per cached state index (measured, WA). Pre-fix the
+      cache held one; now one per state slice on disk, no eviction. Single-state installs are
+      unaffected — a multi-state deployment pays 76MB × N. A 2-entry LRU would keep the win.
+- [ ] `(mtime_ns, size)` is weaker than it sounds: `rsync -a`/`tar -xp`/`cp -p` restore mtimes,
+      and a same-size rewrite then goes unseen. Narrow, and all such flows restart the process.
+- [ ] `test_zero_row_slice_forces_download` asserts as *desirable* that a state with genuinely
+      no upstream rows re-downloads 950MB every invocation, with no backoff.
 
 **Standalone dashboard — decided 2026-08-03: NOT building.** Redfin already publishes an
 equivalent free public dashboard from the same data (see the competitive reality check

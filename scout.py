@@ -216,9 +216,12 @@ def main() -> None:
         state = args.market_refresh.upper()
         console.print(f"\n[bold]Refreshing area-market data[/bold] · {state}")
 
-        local = market_trends.local_last_modified(state)
+        # Ask market_trends whether a refresh is needed rather than deciding
+        # here: a second, weaker copy of that rule silently skipped downloads
+        # the refresh itself would have performed (a truncated slice matched on
+        # timestamp alone), so the hardening in refresh() never ran in practice.
         upstream = market_trends.upstream_last_modified()
-        if local and upstream and local == upstream and not args.force:
+        if not args.force and market_trends.is_current(state, remote_stamp=upstream):
             console.print(
                 f"[green]✓[/green] Already current — Redfin last published "
                 f"{upstream}.\n[dim]Use --force to re-download anyway.[/dim]"
