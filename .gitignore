@@ -32,6 +32,9 @@ data/*.db
 # Area-market slices (regenerable: scout.py --market-refresh WA)
 data/market_trends_*.tsv
 data/market_trends_*.meta.json
+# scratch file a killed refresh leaves behind — the *.tsv rule above only
+# matches names ending in .tsv, so it never covered these
+data/market_trends_*.partial
 
 # Claude Code local settings
 .claude/

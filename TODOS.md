@@ -1,6 +1,6 @@
 # TODOS
 
-Last updated: 2026-08-03
+Last updated: 2026-08-12
 
 ---
 
@@ -12,7 +12,7 @@ Last updated: 2026-08-03
 `config.yaml`) → the pipeline pulls live listings, screens them, enriches with rent/schools/
 solar/zoning data, runs the financial analysis against *your* down payment and rate, flags
 risks, and produces an AI-ranked HTML report with maps, live sliders, and area market context.
-420 tests passing.
+434 tests passing.
 
 **Not deployed.** It runs on your machine only — there's no URL to send anyone. That's the
 one thing keeping Phase 1 open, and it's a decision (which host, where reports and accounts
@@ -59,7 +59,7 @@ scope) and P3 (school district names).
 
 ### Infra / docs
 - **All API keys present** — Anthropic, Google Maps, HUD, NREL, Rentcast, ScraperAPI, Walk Score
-- **420 tests passing**
+- **434 tests passing**
 - **Architecture docs** — `ARCHITECTURE.md` + `ARCHITECTURE.html`
 
 ---
@@ -240,13 +240,14 @@ five-tracker timestamp cluster, `MARKET_TRENDS_DIR`/`--market-refresh`/`--force`
 status). Five stale *numbers* were wrong and are now corrected: test counts in three places,
 a row count off by one, and "555 cities" which was only true under an unstated 2024+ filter.
 
-Left open deliberately (low severity, none reproduced):
-- [ ] Concurrent refreshes of the same state share one `.partial` path with no lock
-- [ ] `.gitignore` covers `data/market_trends_*.tsv` but not `*.tsv.partial`, so a killed
+Left open deliberately (low severity, none reproduced) — **three of four closed 2026-08-12,
+see "Follow-up sweep" below:**
+- [x] Concurrent refreshes of the same state share one `.partial` path with no lock
+- [x] `.gitignore` covers `data/market_trends_*.tsv` but not `*.tsv.partial`, so a killed
       refresh leaves an untracked file
 - [ ] `_clean(PERIOD_BEGIN) < cutoff` is a string compare — a reformatted upstream date would
       drop every row (now self-healing, since a zero-row slice re-downloads)
-- [ ] Addresses with a country suffix (`…, WA 98118, USA`) parse to `None`, so market context
+- [x] Addresses with a country suffix (`…, WA 98118, USA`) parse to `None`, so market context
       silently never appears; only a run with *zero* matches logs anything
 
 **Second review pass — 2026-08-11, before merging the fixes.** Two more subagents verified the
@@ -283,13 +284,35 @@ Follow-ups this pass raised, not blocking:
       would close the block early and spill the rest into the document as markup. `<` is now
       unicode-escaped in that payload. 13 tests added, 12 of which fail against the pre-fix code
       (the 13th is the guard that clean data is not mangled).
-- [ ] **Cache ceiling rose.** ~76MB resident per cached state index (measured, WA). Pre-fix the
+- [x] **Cache ceiling rose.** ~76MB resident per cached state index (measured, WA). Pre-fix the
       cache held one; now one per state slice on disk, no eviction. Single-state installs are
       unaffected — a multi-state deployment pays 76MB × N. A 2-entry LRU would keep the win.
+      **Done 2026-08-12** — see below.
 - [ ] `(mtime_ns, size)` is weaker than it sounds: `rsync -a`/`tar -xp`/`cp -p` restore mtimes,
       and a same-size rewrite then goes unseen. Narrow, and all such flows restart the process.
 - [ ] `test_zero_row_slice_forces_download` asserts as *desirable* that a state with genuinely
       no upstream rows re-downloads 950MB every invocation, with no backoff.
+
+**Follow-up sweep — 2026-08-12.** Cleared four of the seven items left open by the two review
+passes. No new review; these were the known-and-parked ones.
+
+| Item | Fix |
+|---|---|
+| Country-suffixed addresses parsed to `None` | `parse_city_state()` strips a trailing US country segment before reading the state. `US` had to be handled there rather than left to the two-letter state check, which would otherwise have accepted it and read `WA 98118` as the city. Non-US countries still fail the parse — the slice is US-only, so trimming them would risk matching a same-named US city |
+| Unbounded index cache | 2-entry LRU (`_INDEX_CACHE_MAX`), all writes routed through `_cache_put()`, cache hits re-marked as recent. Keeps the two-state win that motivated the dict; ceiling no longer scales with states touched |
+| Shared `.partial` scratch path | Now unique per process and thread, so a failed refresh can't unlink a concurrent one's in-flight file. The final `replace` was already atomic |
+| `.gitignore` missed `*.tsv.partial` | Added `data/market_trends_*.partial` (the existing `*.tsv` glob stops at `.tsv`) |
+
+14 tests added; 10 were confirmed to fail against the pre-fix code, and the other 4 are guards
+that the changes don't break the clean path (no scratch file after a successful refresh,
+eviction can't change a lookup result, `…, Canada` and a country-only tail still fail to parse).
+Verified live afterwards against the real 43,341-row WA slice: the suffixed and bare forms of a
+Seattle address both resolve to the same row (799 homes sold, May 2026), and the refresh CLI
+still skips in ~1.4s with no download. Suite: **434 passing**.
+
+The three still open are genuine judgment calls, not oversights: the string-compare cutoff is
+self-healing, the fingerprint weakness needs a content hash on a 7MB file every lookup to fix,
+and the zero-row re-download is a real trade against trusting a possibly-truncated slice.
 
 **Standalone dashboard — decided 2026-08-03: NOT building.** Redfin already publishes an
 equivalent free public dashboard from the same data (see the competitive reality check

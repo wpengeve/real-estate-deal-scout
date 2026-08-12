@@ -35,7 +35,9 @@ import gzip
 import json
 import logging
 import os
+import threading
 import urllib.request
+from collections import OrderedDict
 from datetime import date
 from pathlib import Path
 
@@ -78,7 +80,16 @@ _HISTORY_YEARS = 3
 # and fingerprinted on (mtime, size) so a long-lived process (the FastAPI app)
 # picks up a slice refreshed by a separate `scout.py --market-refresh` run
 # instead of serving its first-seen copy until restart.
-_index_cache: dict[Path, tuple[tuple[int, int] | None, dict[str, list[dict]]]] = {}
+#
+# Bounded because an index is large: ~76 MB resident for WA, and a national
+# deployment has 50 slices on disk. An unbounded dict would hold every state a
+# process ever looked at. Two entries keeps the win that motivated the dict in
+# the first place — a shortlist spanning two states re-parsing 43k rows on every
+# lookup — without letting the ceiling scale with the number of states.
+_INDEX_CACHE_MAX = 2
+_index_cache: "OrderedDict[Path, tuple[tuple[int, int] | None, dict[str, list[dict]]]]" = (
+    OrderedDict()
+)
 
 
 # ── Parsing helpers ───────────────────────────────────────────────────────────
@@ -110,10 +121,26 @@ def _city_key(city: str, state: str) -> str:
     return f"{city.strip().lower()}|{state.strip().upper()}"
 
 
+# Only the US spellings: the slice is US-only, so a segment naming any other
+# country means the address isn't ours to look up and should fail the parse
+# rather than be trimmed into something that matches a city here.
+_COUNTRY_SEGMENTS = {"US", "USA", "UNITEDSTATES", "UNITEDSTATESOFAMERICA"}
+
+
+def _is_country(segment: str) -> bool:
+    """True for a trailing country segment: "USA", "U.S.A.", "United States"."""
+    return segment.upper().replace(".", "").replace(" ", "") in _COUNTRY_SEGMENTS
+
+
 def parse_city_state(address: str | None) -> tuple[str, str] | None:
     """
     Pull (city, state) out of an address like
     "4521 Rainier Ave S, Seattle, WA 98118" -> ("Seattle", "WA").
+
+    A trailing country segment is dropped first, so geocoded addresses
+    ("..., Seattle, WA 98118, USA") parse the same as bare ones. Without that
+    the state test below reads "USA" as the state, fails the two-letter check,
+    and market context silently never appears for that listing.
 
     Returns None when the address doesn't carry a parseable city and state.
     """
@@ -125,6 +152,14 @@ def parse_city_state(address: str | None) -> tuple[str, str] | None:
     parts = [p.strip() for p in address.split(",")]
     while parts and not parts[-1]:
         parts.pop()
+
+    # Only from the tail, and never down to fewer than the city + state the
+    # parse needs. "US" has to be handled here rather than left to the state
+    # check, which would otherwise accept it as a two-letter code and read the
+    # real state segment as the city.
+    while len(parts) > 2 and _is_country(parts[-1]):
+        parts.pop()
+
     if len(parts) < 2:
         return None
 
@@ -274,7 +309,12 @@ def refresh(
     state = state.upper()
     dest = slice_path(state, data_dir)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(".tsv.partial")
+    # Unique per caller. Two concurrent refreshes of the same state used to
+    # write to one scratch path, so they interleaved rows into a single file and
+    # either one's failure unlinked the other's work. With separate paths the
+    # only shared step left is the final `replace`, which is atomic — the loser
+    # is simply overwritten, with equivalent content.
+    tmp = dest.with_suffix(f".tsv.{os.getpid()}-{threading.get_ident()}.partial")
 
     cutoff = f"{date.today().year - history_years}-01-01"
     remote_stamp = upstream_last_modified(source_url)
@@ -343,6 +383,18 @@ def _invalidate_cache() -> None:
     _index_cache.clear()
 
 
+def _cache_put(
+    path: Path,
+    fingerprint: tuple[int, int] | None,
+    index: dict[str, list[dict]],
+) -> None:
+    """Store an index, evicting the least recently used entry past the cap."""
+    _index_cache[path] = (fingerprint, index)
+    _index_cache.move_to_end(path)
+    while len(_index_cache) > _INDEX_CACHE_MAX:
+        _index_cache.popitem(last=False)
+
+
 def _row_to_snapshot(row: dict) -> MarketSnapshot:
     homes_sold = _num(row.get("HOMES_SOLD"))
     return MarketSnapshot(
@@ -391,6 +443,7 @@ def _load_index(state: str, data_dir: Path | None = None) -> dict[str, list[dict
 
     cached = _index_cache.get(path)
     if cached is not None and cached[0] == fingerprint:
+        _index_cache.move_to_end(path)  # a hit is a use — don't evict it next
         return cached[1]
 
     index: dict[str, list[dict]] = {}
@@ -399,7 +452,7 @@ def _load_index(state: str, data_dir: Path | None = None) -> dict[str, list[dict
             "No market-trends slice at %s — run `scout.py market-refresh --state %s`",
             path, state,
         )
-        _index_cache[path] = (fingerprint, index)
+        _cache_put(path, fingerprint, index)
         return index
 
     try:
@@ -412,13 +465,13 @@ def _load_index(state: str, data_dir: Path | None = None) -> dict[str, list[dict
                 index.setdefault(_city_key(city, state_code), []).append(row)
     except Exception as e:
         logger.warning("Could not read market-trends slice %s: %r", path, e)
-        _index_cache[path] = (fingerprint, {})
+        _cache_put(path, fingerprint, {})
         return {}
 
     for rows in index.values():
         rows.sort(key=lambda r: _clean(r.get("PERIOD_END")), reverse=True)
 
-    _index_cache[path] = (fingerprint, index)
+    _cache_put(path, fingerprint, index)
     return index
 
 

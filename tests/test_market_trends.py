@@ -162,10 +162,31 @@ def test_parse_city_state_ok(address, expected):
     assert parse_city_state(address) == expected
 
 
+@pytest.mark.parametrize("address,expected", [
+    ("4521 Rainier Ave S, Seattle, WA 98118, USA", ("Seattle", "WA")),
+    ("4521 Rainier Ave S, Seattle, WA 98118, usa", ("Seattle", "WA")),
+    ("4521 Rainier Ave S, Seattle, WA 98118, U.S.A.", ("Seattle", "WA")),
+    ("123 Main St, Kirkland, WA, United States", ("Kirkland", "WA")),
+    # "US" is two alpha characters, so the state check would happily take it and
+    # read "WA 98004" as the city name. It has to be stripped as a country.
+    ("1 A St, Bellevue, WA 98004, US", ("Bellevue", "WA")),
+    ("9 Pine St, Redmond, WA 98052, USA, ", ("Redmond", "WA")),
+])
+def test_parse_city_state_strips_country_suffix(address, expected):
+    """
+    Geocoded addresses carry a country segment. Before this was handled the
+    parse returned None and market context silently never appeared for the
+    listing — no error, just a missing strip.
+    """
+    assert parse_city_state(address) == expected
+
+
 @pytest.mark.parametrize("address", [
     None, "", "Seattle", "just a street name",
     "123 Main St, Seattle, Washington 98118",  # state must be a 2-letter code
     "123 Main St, , WA 98118",                 # empty city segment
+    "123 Main St, Vancouver, BC V6B 1A1, Canada",  # slice is US-only
+    "WA 98118, USA",  # nothing left to call a city once the country is gone
 ])
 def test_parse_city_state_unparseable(address):
     assert parse_city_state(address) is None
@@ -262,6 +283,16 @@ def test_snapshot_for_address(tmp_path):
     assert snap is not None and snap.city == "Seattle"
 
 
+def test_snapshot_for_address_with_country_suffix(tmp_path):
+    """The end a geocoder produces must reach the same row as the bare form."""
+    data_dir = tmp_path / "data"
+    _write_slice(data_dir)
+    snap = snapshot_for_address(
+        "4521 Rainier Ave S, Seattle, WA 98118, USA", data_dir=data_dir
+    )
+    assert snap is not None and snap.city == "Seattle"
+
+
 def test_snapshot_for_unparseable_address(tmp_path):
     data_dir = tmp_path / "data"
     _write_slice(data_dir)
@@ -273,6 +304,59 @@ def test_history_returns_newest_first(tmp_path):
     _write_slice(data_dir)
     history = mt.history_for_city("Seattle", "WA", data_dir=data_dir)
     assert [h.period_end for h in history] == ["2026-05-31", "2026-04-30"]
+
+
+# ── index cache ───────────────────────────────────────────────────────────────
+
+def _write_state_slice(data_dir, state):
+    """A slice for `state`, with the rows relabelled to match it."""
+    rows = [{**row, "STATE_CODE": state} for row in _ROWS]
+    return _write_slice(data_dir, rows=rows, state=state)
+
+
+def test_index_cache_is_bounded(tmp_path):
+    """
+    An index is ~76MB resident for a state the size of WA. The cache is keyed
+    by path so a two-state shortlist stops re-parsing on every lookup, but
+    unbounded it would hold every state a long-lived process ever touched.
+    """
+    data_dir = tmp_path / "data"
+    for state in ("WA", "OR", "CA", "NY"):
+        _write_state_slice(data_dir, state)
+        mt._load_index(state, data_dir)
+
+    assert len(mt._index_cache) == mt._INDEX_CACHE_MAX
+
+
+def test_index_cache_evicts_least_recently_used(tmp_path):
+    data_dir = tmp_path / "data"
+    for state in ("WA", "OR", "CA"):
+        _write_state_slice(data_dir, state)
+
+    mt._load_index("WA", data_dir)
+    mt._load_index("OR", data_dir)
+    mt._load_index("WA", data_dir)   # a hit — WA is now the most recent use
+    mt._load_index("CA", data_dir)   # evicts OR, not WA
+
+    cached = set(mt._index_cache)
+    assert mt.slice_path("WA", data_dir) in cached
+    assert mt.slice_path("CA", data_dir) in cached
+    assert mt.slice_path("OR", data_dir) not in cached
+
+
+def test_eviction_does_not_change_lookup_results(tmp_path):
+    """Eviction may only cost a re-parse — never an answer."""
+    data_dir = tmp_path / "data"
+    for state in ("WA", "OR", "CA"):
+        _write_state_slice(data_dir, state)
+
+    first = snapshot_for_city("Seattle", "WA", data_dir=data_dir)
+    snapshot_for_city("Seattle", "OR", data_dir=data_dir)
+    snapshot_for_city("Seattle", "CA", data_dir=data_dir)  # pushes WA out
+    again = snapshot_for_city("Seattle", "WA", data_dir=data_dir)
+
+    assert first is not None
+    assert again == first
 
 
 def test_history_respects_months_limit(tmp_path):
@@ -402,6 +486,33 @@ def test_refresh_output_is_loadable(tmp_path, monkeypatch):
 
     snap = snapshot_for_city("Seattle", "WA", data_dir=tmp_path)
     assert snap is not None and snap.homes_sold == 799
+
+
+def test_refresh_leaves_no_scratch_file_behind(tmp_path, monkeypatch):
+    _patch_urlopen(monkeypatch, _gzipped_source(_ROWS))
+    mt.refresh(state="WA", data_dir=tmp_path)
+    assert list(tmp_path.glob("*.partial")) == []
+
+
+def test_failed_refresh_only_removes_its_own_scratch_file(tmp_path, monkeypatch):
+    """
+    Every caller used to write to one shared `<slice>.tsv.partial`, so two
+    concurrent refreshes of a state fought over a single file: the one that
+    failed unlinked the other's work mid-download, and the one that finished
+    renamed the file out from under its neighbour. Scratch paths are now unique
+    per process and thread.
+    """
+    other = tmp_path / "market_trends_WA.tsv.partial"  # the old shared path
+    other.write_text("another refresh is mid-download", encoding="utf-8")
+
+    def boom(request, timeout=None):
+        raise OSError("connection reset")
+    monkeypatch.setattr(mt.urllib.request, "urlopen", boom)
+
+    with pytest.raises(OSError):
+        mt.refresh(state="WA", data_dir=tmp_path)
+
+    assert other.exists()
 
 
 def test_failed_refresh_preserves_previous_slice(tmp_path, monkeypatch):
