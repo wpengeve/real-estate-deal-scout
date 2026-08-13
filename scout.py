@@ -12,7 +12,6 @@ import re
 import sys
 from pathlib import Path
 
-import yaml
 from dotenv import load_dotenv
 
 # load_dotenv() must run before local imports so that module-level os.getenv()
@@ -26,7 +25,7 @@ from rich.table import Table
 from rich import box
 
 from pipeline import run, run_from_analyzed
-from tools import market_trends
+from tools import config_file, market_trends
 from tools.chat_intake import run_chat_intake
 from tools.models import InvestmentConfig, Shortlist
 
@@ -63,12 +62,9 @@ def _format_zoning(code: str) -> str:
 
 
 def load_config(config_path: str, overrides: dict) -> InvestmentConfig:
-    path = Path(config_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-
-    with path.open() as f:
-        data = yaml.safe_load(f)
+    # Existence, parsing, and the "copy the example" message live in
+    # tools/config_file.py so the web app can't drift from the CLI.
+    data = config_file.read_config_data(config_path)
 
     if overrides.get("market"):
         data["output"]["market"] = overrides["market"]
@@ -184,7 +180,11 @@ def main() -> None:
         description="Real Estate Deal Scout — find investment properties with AI"
     )
     parser.add_argument("--market", help="Target market, e.g. 'Seattle, WA'")
-    parser.add_argument("--config", default="config.yaml", help="Path to config file")
+    parser.add_argument(
+        "--config",
+        default=str(config_file.DEFAULT_CONFIG_PATH),
+        help="Path to config file",
+    )
     parser.add_argument("--max-shortlist", type=int, help="Max properties in shortlist")
     parser.add_argument(
         "--from-analyzed",

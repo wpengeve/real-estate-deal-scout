@@ -193,7 +193,9 @@
         <tr><td><code>app.py</code></td><td><strong>Website entry point (FastAPI).</strong> Chat interface, login, background runs, report viewing.</td></tr>
         <tr><td><code>pipeline.py</code></td><td><strong>The orchestrator</strong> — runs the six stages in order. Also variants for re-running old results and single-property analysis.</td></tr>
         <tr><td><code>db.py</code></td><td><strong>Database code</strong> (SQLite): users, logins, sessions, past report runs.</td></tr>
-        <tr><td><code>config.yaml</code></td><td>Your settings: what to search for, budget/loan terms, which AI to use.</td></tr>
+        <tr><td><code>config.yaml</code></td><td>Your settings: what to search for, budget/loan terms, which AI to use. <strong>Untracked</strong> — copy <code>config.yaml.example</code> to create it, then edit freely.</td></tr>
+        <tr><td><code>config.yaml.example</code></td><td>The tracked template <code>config.yaml</code> is copied from, documented inline.</td></tr>
+        <tr><td><code>TODOS.md</code></td><td>Roadmap and current status — the authoritative one, kept current.</td></tr>
         <tr><td><code>CLAUDE.md</code> / <code>ROLES.md</code></td><td>Rules for adding data sources &amp; who owns which decisions.</td></tr>
       </table>
     </div>
@@ -202,6 +204,7 @@
   <details>
     <summary>tools/ — the building blocks</summary>
     <div class="details-body">
+      <p><span class="stage-tag">settings</span><strong>config_file.py</strong> — finds and reads <code>config.yaml</code>. Both <code>scout.py</code> and <code>app.py</code> go through it, so the CLI and the website can't disagree about where settings live or what to say when the file is missing.</p>
       <p><span class="stage-tag">dictionary</span><strong>models.py</strong> — the definitions of every kind of data the pipeline passes around (a "listing," an "analyzed deal," the final "shortlist"). The project's shared vocabulary — read this first. Key ones: <code>InvestmentConfig</code>, <code>RawListing</code>, <code>Shortlist</code>.</p>
       <table>
         <tr><th>Stage</th><th>Files</th></tr>
@@ -221,7 +224,7 @@
     <summary>Supporting folders</summary>
     <div class="details-body">
       <table>
-        <tr><td><code>tests/</code></td><td>434 automated tests — roughly one file per building block + a full pipeline test</td></tr>
+        <tr><td><code>tests/</code></td><td>442 automated tests — roughly one file per building block + a full pipeline test</td></tr>
         <tr><td><code>fixtures/</code></td><td>Fake sample listings for offline testing</td></tr>
         <tr><td><code>data/</code></td><td>Downloaded listing files, the <code>scout.db</code> database, and the area-market slice from <code>--market-refresh</code></td></tr>
         <tr><td><code>outputs/</code></td><td>Results of each run (auto-deleted after 7 days)</td></tr>
@@ -302,7 +305,10 @@ python scout.py --from-analyzed outputs/…_analyzed.json   # reuse saved data, 
   </table>
 
   <h2 id="s7"><span class="num">7.</span> Configuration &amp; ranking</h2>
-  <p><code>config.yaml</code> controls a run without touching code. Key settings:</p>
+  <p><code>config.yaml</code> controls a run without touching code. It is untracked — copy
+  <code>config.yaml.example</code> to create it — so your budget and loan terms stay yours and never show up
+  as a pending git change. <code>tools/config_file.py</code> is the only thing that locates and reads it,
+  shared by both entry points. Key settings:</p>
   <ul>
     <li><code>fetch.data_source</code> — where listings come from (<code>fixtures | csv | redfin | scraperapi | rentcast</code>)</li>
     <li><code>criteria.*</code> — price, beds, HOA, home types, which cities count</li>
@@ -315,7 +321,7 @@ python scout.py --from-analyzed outputs/…_analyzed.json   # reuse saved data, 
   and is what the project runs today).</div>
 
   <h2 id="s8"><span class="num">8.</span> Testing</h2>
-  <p>The project has <strong>434 automated tests</strong> (run with <code>pytest</code>) — roughly one test file per
+  <p>The project has <strong>442 automated tests</strong> (run with <code>pytest</code>) — roughly one test file per
   building block, plus an end-to-end test of the whole pipeline. Outside services are faked during tests so they run
   fast and offline. Policy: the full suite must pass before every commit, and new code brings its own tests.</p>
 

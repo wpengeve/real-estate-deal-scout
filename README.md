@@ -38,7 +38,12 @@ up without reading code.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+cp config.yaml.example config.yaml
 ```
+
+`config.yaml` holds your own settings — budget, loan terms, target market — so it
+is untracked. Editing it won't show up as a pending git change, and pulling won't
+overwrite it. Everything in it is documented inline in the example.
 
 Copy `.env.example` to `.env` and add your keys:
 
@@ -163,7 +168,7 @@ output:
 pytest
 ```
 
-434 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, area market context, conversational intake, and full pipeline integration.
+442 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, area market context, settings loading, conversational intake, and full pipeline integration.
 
 > For the file-by-file layout, see the [Architecture & Code Guide](ARCHITECTURE.md#3-directory-map--what-each-file-does).
 

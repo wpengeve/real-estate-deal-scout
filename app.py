@@ -37,7 +37,6 @@ import uuid
 from pathlib import Path
 
 import uvicorn
-import yaml
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.requests import Request
@@ -64,6 +63,7 @@ from db import (  # noqa: E402
     upsert_report_run,
 )
 from pipeline import run as run_pipeline, run_single_property, run_multi_property  # noqa: E402
+from tools import config_file  # noqa: E402
 from tools.fetch import resolve_address_to_url  # noqa: E402
 from tools.models import InvestmentConfig
 from tools.web_chat import ChatSession
@@ -76,7 +76,7 @@ templates = Jinja2Templates(directory="templates")
 templates.env.auto_reload = True
 
 _OUTPUTS_DIR = Path("outputs")
-_CONFIG_PATH = Path("config.yaml")
+_CONFIG_PATH = config_file.DEFAULT_CONFIG_PATH
 
 # In-memory pipeline state (resets on restart — reports persist on disk)
 _chat_sessions: dict[str, ChatSession] = {}
@@ -119,8 +119,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
 
 
 def _load_base_config() -> InvestmentConfig:
-    with _CONFIG_PATH.open() as f:
-        return InvestmentConfig.model_validate(yaml.safe_load(f))
+    return config_file.load_config(_CONFIG_PATH)
 
 
 # ── Pages ─────────────────────────────────────────────────────────────────────

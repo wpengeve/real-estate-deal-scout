@@ -81,16 +81,20 @@ That flow is the whole product.
 | `app.py` | **Website entry point (FastAPI).** Chat interface, login, running the pipeline in the background, showing reports. |
 | `pipeline.py` | **The orchestrator** — runs the six stages in order. Also has variants for re-running old results and analyzing a single property. |
 | `db.py` | **Database code** (SQLite) — stores users, logins, sessions, and past report runs. |
-| `config.yaml` | Your settings: what to search for, your budget/loan terms, which AI to use. |
+| `config.yaml` | Your settings: what to search for, your budget/loan terms, which AI to use. **Untracked** — copy `config.yaml.example` to create it, then edit freely. |
+| `config.yaml.example` | The tracked template `config.yaml` is copied from, documented inline. |
 | `.env` / `.env.example` | Secret API keys (read from the environment, never written into code). |
 | `README.md` | Setup & usage instructions. |
 | `CLAUDE.md` | Rules the AI assistant follows when adding new data sources (see §4.5). |
 | `ROLES.md` | Who owns which decisions on the project. |
-| `PROGRESS.md` / `TODOS.md` | Progress log and roadmap. |
+| `TODOS.md` | Roadmap and current status — the authoritative one, kept current. |
 
 ### `tools/` — the building blocks
 
 **The shared vocabulary:**
+- `config_file.py` — Finds and reads `config.yaml`. Both `scout.py` and `app.py` go
+  through it, so the CLI and the website can't disagree about where settings live or
+  what to say when the file is missing.
 - `models.py` — **The definitions of every kind of data the pipeline passes around**
   (a "listing," an "analyzed deal," the final "shortlist," etc.). Think of it as the
   project's dictionary — every other file agrees on these shapes. This is the single
@@ -251,7 +255,10 @@ free tier, and every one degrades gracefully if its key is missing.
 
 ## 7. Configuration & ranking
 
-`config.yaml` controls a run without touching any code. The key settings:
+`config.yaml` controls a run without touching any code. It is untracked — copy
+`config.yaml.example` to create it — so your budget and loan terms stay yours and
+never show up as a pending git change. `tools/config_file.py` is the only thing that
+locates and reads it, shared by both entry points. The key settings:
 - `fetch.data_source` — where listings come from (`fixtures | csv | redfin | scraperapi | rentcast`)
 - `criteria.*` — price, beds, HOA, home types, which cities count
 - `financial_assumptions.*` — your down payment %, loan rate, vacancy, etc.
@@ -267,7 +274,7 @@ project runs today).
 
 ## 8. Testing
 
-The project has **434 automated tests** (run with `pytest`) — roughly one test file
+The project has **442 automated tests** (run with `pytest`) — roughly one test file
 per building block, plus an end-to-end test of the whole pipeline. Outside services
 are faked during tests so they run fast and offline. Policy: the full test suite must
 pass before every commit, and any new code brings its own tests.

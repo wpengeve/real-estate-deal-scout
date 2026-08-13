@@ -2,6 +2,10 @@
 .env
 .env.local
 
+# Your own settings — copy config.yaml.example to create it. Untracked so local
+# edits don't show as a pending change, and a pull can't overwrite them.
+config.yaml
+
 # Personal progress log (local only, never committed)
 PROGRESS.md
 
