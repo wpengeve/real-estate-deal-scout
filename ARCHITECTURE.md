@@ -135,6 +135,14 @@ That flow is the whole product.
 - `ollama_ranker.py` — Ranks with a free AI model running on your own computer.
 - Claude ranking (the best option) lives in `pipeline.py`, turned on with `ranker: claude`.
 
+**Area market context (not a stage — a lookup both the report and the ranker use):**
+- `market_trends.py` — How a *city's* market is behaving (months of supply, sale-to-list,
+  share sold above asking, median days to contract), from the free Redfin Data Center
+  file. Because that file is ~950 MB and unsorted by region, this is a **batch refresh**
+  (`scout.py --market-refresh WA`) that filters one state to a small local slice, not a
+  per-search fetch. Lookups then read the slice, and degrade to "no context" — never an
+  error — when no refresh has been run.
+
 **Chat & output:**
 - `chat_intake.py` — The command-line chat: turns "3-bed rentals under $900k" into settings.
 - `web_chat.py` — The website version of that chat; also answers follow-up questions
@@ -144,7 +152,8 @@ That flow is the whole product.
 ### Other folders
 - `tests/` — the automated tests (see §8).
 - `fixtures/` — fake sample listings for offline testing.
-- `data/` — downloaded listing files + the `scout.db` database.
+- `data/` — downloaded listing files, the `scout.db` database, and the area-market
+  slice built by `--market-refresh` (all gitignored; the slice is regenerable).
 - `outputs/` — the results of each run (auto-deleted after 7 days).
 - `templates/` — the HTML page templates for the website.
 
@@ -258,10 +267,17 @@ project runs today).
 
 ## 8. Testing
 
-The project has **~298 automated tests** (run with `pytest`) — roughly one test file
+The project has **434 automated tests** (run with `pytest`) — roughly one test file
 per building block, plus an end-to-end test of the whole pipeline. Outside services
 are faked during tests so they run fast and offline. Policy: the full test suite must
 pass before every commit, and any new code brings its own tests.
+
+One convention worth copying when you fix a bug here: **write the test first and
+confirm it fails against the unfixed code.** Two separate reviews of the market-context
+work found defects sitting in code the suite already "covered", and one round of fixes
+shipped with tests that called the fixed function directly — one layer below the bug —
+so the suite stayed green while the CLI kept the old behaviour. A regression test that
+was never seen to fail proves nothing.
 
 ---
 
@@ -274,7 +290,9 @@ pass before every commit, and any new code brings its own tests.
 - **Phase 3 — "keep users coming back": not started.** Auto re-run saved searches,
   email alerts for new matches, and a thumbs-up/down feedback loop.
 
-See `TODOS.md` for the full roadmap and `PROGRESS.md` for the session log.
+See `TODOS.md` for the full roadmap — it is the authoritative status doc and is kept
+current. (`PROGRESS.md` is a personal session log, gitignored, so a fresh clone won't
+have one.)
 
 ---
 
@@ -294,7 +312,15 @@ See `TODOS.md` for the full roadmap and `PROGRESS.md` for the session log.
 - **GRM (gross rent multiplier)** — price divided by yearly rent; a quick "is this
   expensive relative to rent?" gauge. Also called price-to-rent.
 - **DOM (days on market)** — how long a listing has been for sale. A very high number
-  can signal a problem (or an opportunity).
+  can signal a problem (or an opportunity). In the market-context strip it means
+  something narrower: the median days *until a home went under contract*, which stops
+  at the accepted offer, not the closing (add ~30–45 days for that).
+- **Sale-to-list** — the average ratio of a home's final sale price to its final list
+  price. 1.01 means homes sold ~1% over asking. Note *final*: a home cut from $1M to
+  $900k and sold at $900k scores 1.000, so this understates seller weakness — which is
+  why the report always shows price drops next to it.
+- **Months of supply** — how long it would take to sell every home currently for sale
+  at the current pace. Low = a seller's market, high = a buyer's market.
 - **ADU / DADU** — a second small home on the same lot: an Accessory Dwelling Unit
   (e.g. a basement apartment) or *Detached* ADU (a backyard cottage). Extra rental income.
 - **HB 1110** — a 2023 Washington law letting more lots build duplexes/multiplexes.

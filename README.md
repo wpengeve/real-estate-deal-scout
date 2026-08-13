@@ -163,7 +163,7 @@ output:
 pytest
 ```
 
-420 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, conversational intake, and full pipeline integration.
+434 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, area market context, conversational intake, and full pipeline integration.
 
 > For the file-by-file layout, see the [Architecture & Code Guide](ARCHITECTURE.md#3-directory-map--what-each-file-does).
 

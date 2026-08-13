@@ -211,6 +211,7 @@
         <tr><td><span class="stage-tag">4 analyze</span></td><td><code>analyze.py</code> (the money math), <code>zoning_potential.py</code> (backyard cottage / lot-split / duplex upside), <code>appreciation.py</code> (value-growth signals)</td></tr>
         <tr><td><span class="stage-tag">5 risks</span></td><td><code>risks.py</code> — flood, earthquake, wildfire, stale-listing warnings</td></tr>
         <tr><td><span class="stage-tag">6 rank</span></td><td><code>mock_ranker.py</code> (no AI, offline default), <code>ollama_ranker.py</code> (AI on your computer), Claude ranking in pipeline</td></tr>
+        <tr><td><span class="stage-tag">market</span></td><td><code>market_trends.py</code> — how a <em>city's</em> market is behaving (months of supply, sale-to-list, share sold above asking, days to contract), from the free Redfin Data Center file. Not a stage: a batch refresh (<code>scout.py --market-refresh WA</code>) builds a small local slice, which both the report and the ranker then read</td></tr>
         <tr><td><span class="stage-tag">chat/out</span></td><td><code>chat_intake.py</code> (CLI chat), <code>web_chat.py</code> (web chat + follow-up Q&amp;A), <code>report.py</code> (interactive HTML report)</td></tr>
       </table>
     </div>
@@ -220,9 +221,9 @@
     <summary>Supporting folders</summary>
     <div class="details-body">
       <table>
-        <tr><td><code>tests/</code></td><td>~298 automated tests — roughly one file per building block + a full pipeline test</td></tr>
+        <tr><td><code>tests/</code></td><td>434 automated tests — roughly one file per building block + a full pipeline test</td></tr>
         <tr><td><code>fixtures/</code></td><td>Fake sample listings for offline testing</td></tr>
-        <tr><td><code>data/</code></td><td>Downloaded listing files + the <code>scout.db</code> database</td></tr>
+        <tr><td><code>data/</code></td><td>Downloaded listing files, the <code>scout.db</code> database, and the area-market slice from <code>--market-refresh</code></td></tr>
         <tr><td><code>outputs/</code></td><td>Results of each run (auto-deleted after 7 days)</td></tr>
         <tr><td><code>templates/</code></td><td>HTML page templates for the website</td></tr>
       </table>
@@ -314,9 +315,15 @@ python scout.py --from-analyzed outputs/…_analyzed.json   # reuse saved data, 
   and is what the project runs today).</div>
 
   <h2 id="s8"><span class="num">8.</span> Testing</h2>
-  <p>The project has <strong>~298 automated tests</strong> (run with <code>pytest</code>) — roughly one test file per
+  <p>The project has <strong>434 automated tests</strong> (run with <code>pytest</code>) — roughly one test file per
   building block, plus an end-to-end test of the whole pipeline. Outside services are faked during tests so they run
   fast and offline. Policy: the full suite must pass before every commit, and new code brings its own tests.</p>
+
+  <p>One convention worth copying when you fix a bug here: <strong>write the test first and confirm it fails against
+  the unfixed code.</strong> Two separate reviews of the market-context work found defects sitting in code the suite
+  already "covered", and one round of fixes shipped with tests that called the fixed function directly — one layer
+  below the bug — so the suite stayed green while the CLI kept the old behaviour. A regression test that was never
+  seen to fail proves nothing.</p>
 
   <h2 id="s9"><span class="num">9.</span> Where the project is heading</h2>
   <table>
@@ -325,7 +332,8 @@ python scout.py --from-analyzed outputs/…_analyzed.json   # reuse saved data, 
     <tr><td>Phase 2</td><td>Multi-market + accounts</td><td>Mostly done — login, accounts, history already in <code>db.py</code></td></tr>
     <tr><td>Phase 3</td><td>Keep users coming back (auto re-runs, email alerts, feedback loop)</td><td>Not started</td></tr>
   </table>
-  <p>See <code>TODOS.md</code> for the full roadmap and <code>PROGRESS.md</code> for the session log.</p>
+  <p>See <code>TODOS.md</code> for the full roadmap — it is the authoritative status doc and is kept current.
+  (<code>PROGRESS.md</code> is a personal session log, gitignored, so a fresh clone won't have one.)</p>
 
   <h2 id="s10"><span class="num">10.</span> Glossary (plain English)</h2>
   <div class="glossary">
@@ -337,7 +345,9 @@ python scout.py --from-analyzed outputs/…_analyzed.json   # reuse saved data, 
       <dt>NOI (net operating income)</dt><dd>Yearly rent minus running costs (management, maintenance, insurance, taxes), <em>not</em> counting the mortgage.</dd>
       <dt>PITI</dt><dd>A mortgage payment's four parts: Principal, Interest, Taxes, Insurance. Used in "primary residence" mode.</dd>
       <dt>GRM (gross rent multiplier)</dt><dd>Price ÷ yearly rent; a quick "expensive relative to rent?" gauge. Also called price-to-rent.</dd>
-      <dt>DOM (days on market)</dt><dd>How long a listing has been for sale. A very high number can signal a problem — or an opportunity.</dd>
+      <dt>DOM (days on market)</dt><dd>How long a listing has been for sale. A very high number can signal a problem — or an opportunity. In the market-context strip it means something narrower: the median days <em>until a home went under contract</em>, which stops at the accepted offer, not the closing (add ~30–45 days for that).</dd>
+      <dt>Sale-to-list</dt><dd>The average ratio of a home's final sale price to its final list price. 1.01 means homes sold ~1% over asking. Note <em>final</em>: a home cut from $1M to $900k and sold at $900k scores 1.000, so this understates seller weakness — which is why the report always shows price drops next to it.</dd>
+      <dt>Months of supply</dt><dd>How long it would take to sell every home currently for sale at the current pace. Low = a seller's market, high = a buyer's market.</dd>
       <dt>ADU / DADU</dt><dd>A second small home on the same lot: an Accessory Dwelling Unit (e.g. basement apartment) or <em>Detached</em> ADU (backyard cottage). Extra rental income.</dd>
       <dt>HB 1110</dt><dd>A 2023 Washington law letting more lots build duplexes/multiplexes.</dd>
       <dt>Zoning</dt><dd>Local rules for what can be built on a lot. Determines ADU/duplex upside.</dd>
