@@ -388,4 +388,12 @@ Three caveats that must shape the UI copy:
 ## Blocked / Deferred
 
 - **Redfin live/CSV API** — flaky for Seattle (region-ID issues return 0 or wrong-region results). ScraperAPI + Rentcast are the working live paths.
+  Specifics, confirmed 2026-03-23 and worth keeping because the shipped config still
+  carries one of these values: `region_id=16163` (Seattle city) returned **0 listings**,
+  and `region_id=16904` returned **350 San Diego listings**. Root cause never found —
+  likely server-side blocking or a changed internal region-ID mapping.
+  `config.yaml.example` ships `redfin_region_id: 16904`, so anyone flipping
+  `data_source: redfin` for a Seattle search gets San Diego homes with no error. The
+  endpoint is undocumented and can break without notice. Also note HUD rent estimates
+  are county-level averages, not property-specific.
 - **GreatSchools API** — limited free tier, no good free alternative. Named `school_district` stays null for real listings (nearby-schools + proficiency still work).

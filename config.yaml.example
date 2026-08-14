@@ -14,6 +14,10 @@ fetch:
     - data/redfin_2026-03-27-21-42-00.csv
     - data/redfin_2026-03-27-21-42-13.csv
     - data/redfin_2026-03-27-21-42-30.csv
+  # WARNING: 16904 is NOT Seattle — it returned 350 San Diego listings when last
+  # tested (2026-03-23), and 16163 (Seattle city) returned 0. The Redfin live path
+  # is known broken for Seattle and silently returns wrong-region homes rather than
+  # erroring; use scraperapi or rentcast instead. See TODOS.md → Blocked / Deferred.
   redfin_region_id: 16904      # only used when data_source: redfin
   redfin_region_type: 6        # 5=county, 6=city
   redfin_max_homes: 350        # Redfin hard cap per request

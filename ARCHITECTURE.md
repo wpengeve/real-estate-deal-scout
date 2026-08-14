@@ -298,8 +298,7 @@ was never seen to fail proves nothing.
   email alerts for new matches, and a thumbs-up/down feedback loop.
 
 See `TODOS.md` for the full roadmap — it is the authoritative status doc and is kept
-current. (`PROGRESS.md` is a personal session log, gitignored, so a fresh clone won't
-have one.)
+current.
 
 ---
 

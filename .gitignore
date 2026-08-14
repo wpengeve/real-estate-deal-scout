@@ -6,7 +6,8 @@
 # edits don't show as a pending change, and a pull can't overwrite them.
 config.yaml
 
-# Personal progress log (local only, never committed)
+# Personal progress log — retired 2026-08-13 in favour of TODOS.md. Rule kept so a
+# revived local log can't be committed by accident.
 PROGRESS.md
 
 # Python
