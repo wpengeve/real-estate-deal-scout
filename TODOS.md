@@ -12,7 +12,7 @@ Last updated: 2026-08-14
 `config.yaml`) → the pipeline pulls live listings, screens them, enriches with rent/schools/
 solar/zoning data, runs the financial analysis against *your* down payment and rate, flags
 risks, and produces an AI-ranked HTML report with maps, live sliders, and area market context.
-455 tests passing.
+473 tests passing.
 
 **Not deployed.** It runs on your machine only — there's no URL to send anyone. That's the
 one thing keeping Phase 1 open. The *code* side is now ready: where the database, reports,
@@ -62,7 +62,7 @@ open items are P2 (tighter listing scope) and P3 (school district names).
 
 ### Infra / docs
 - **All API keys present** — Anthropic, Google Maps, HUD, NREL, Rentcast, ScraperAPI, Walk Score
-- **455 tests passing**
+- **473 tests passing**
 - **Architecture docs** — `ARCHITECTURE.md` + `ARCHITECTURE.html`
 
 ---
@@ -108,6 +108,17 @@ and `ARCHITECTURE.md` §7. 13 tests.
 - Email delivery for magic links. Currently the link is printed to the server console,
   which is unusable once it's not your own terminal. **This blocks real multi-user use
   more than hosting does** — a stranger can't log in at all today.
+  **Module built 2026-08-14, deliberately NOT wired.** `tools/email_sender.py` renders
+  and sends the login email via Resend (free tier 3,000/month; no new dependency — it's
+  one JSON POST through the `httpx` already in use). Reviewed and approved as a design;
+  committed unwired because wiring it changes nothing until a sending domain is verified,
+  and because dead-but-tested code is easier to review than a half-live login path.
+  18 tests, all failure paths included — no key, 4xx, 5xx, DNS failure, timeout — since
+  a login attempt must never 500 because a mail provider is down.
+  **To finish it:** set `RESEND_API_KEY`, verify a sending domain (until then Resend's
+  shared address only delivers to your own inbox), then call `send_magic_link()` from
+  `app.request_magic_link` keeping the console print as the fallback when it returns
+  False. Gmail SMTP with an app password is the alternative if a domain isn't wanted.
 - `BASE_URL` must be set to the public origin or magic links point at localhost.
 
 ### P2 — Tighter listing scope

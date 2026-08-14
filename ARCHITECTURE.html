@@ -215,7 +215,7 @@
         <tr><td><span class="stage-tag">5 risks</span></td><td><code>risks.py</code> — flood, earthquake, wildfire, stale-listing warnings</td></tr>
         <tr><td><span class="stage-tag">6 rank</span></td><td><code>mock_ranker.py</code> (no AI, offline default), <code>ollama_ranker.py</code> (AI on your computer), Claude ranking in pipeline</td></tr>
         <tr><td><span class="stage-tag">market</span></td><td><code>market_trends.py</code> — how a <em>city's</em> market is behaving (months of supply, sale-to-list, share sold above asking, days to contract), from the free Redfin Data Center file. Not a stage: a batch refresh (<code>scout.py --market-refresh WA</code>) builds a small local slice, which both the report and the ranker then read</td></tr>
-        <tr><td><span class="stage-tag">chat/out</span></td><td><code>chat_intake.py</code> (CLI chat), <code>web_chat.py</code> (web chat + follow-up Q&amp;A), <code>report.py</code> (interactive HTML report)</td></tr>
+        <tr><td><span class="stage-tag">chat/out</span></td><td><code>chat_intake.py</code> (CLI chat), <code>web_chat.py</code> (web chat + follow-up Q&amp;A), <code>report.py</code> (interactive HTML report), <code>email_sender.py</code> (magic-link login email — <strong>not wired in yet</strong>, the link still prints to the server console)</td></tr>
       </table>
     </div>
   </details>
@@ -224,7 +224,7 @@
     <summary>Supporting folders</summary>
     <div class="details-body">
       <table>
-        <tr><td><code>tests/</code></td><td>455 automated tests — roughly one file per building block + a full pipeline test</td></tr>
+        <tr><td><code>tests/</code></td><td>473 automated tests — roughly one file per building block + a full pipeline test</td></tr>
         <tr><td><code>fixtures/</code></td><td>Fake sample listings for offline testing</td></tr>
         <tr><td><code>data/</code></td><td>Downloaded listing files, the <code>scout.db</code> database, and the area-market slice from <code>--market-refresh</code></td></tr>
         <tr><td><code>outputs/</code></td><td>Results of each run (auto-deleted after 7 days)</td></tr>
@@ -336,7 +336,7 @@ python scout.py --from-analyzed outputs/…_analyzed.json   # reuse saved data, 
   default and write state to the wrong place without ever erroring.</p>
 
   <h2 id="s8"><span class="num">8.</span> Testing</h2>
-  <p>The project has <strong>455 automated tests</strong> (run with <code>pytest</code>) — roughly one test file per
+  <p>The project has <strong>473 automated tests</strong> (run with <code>pytest</code>) — roughly one test file per
   building block, plus an end-to-end test of the whole pipeline. Outside services are faked during tests so they run
   fast and offline. Policy: the full suite must pass before every commit, and new code brings its own tests.</p>
 
