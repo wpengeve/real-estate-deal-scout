@@ -8,6 +8,7 @@ Schema:
     report_runs     — every pipeline run, optionally linked to a user
 """
 import json
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,8 +16,24 @@ from pathlib import Path
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, relationship
 
-_DB_PATH = Path("data/scout.db")
-_DB_URL = f"sqlite:///{_DB_PATH}"
+_DEFAULT_DB_PATH = Path("data/scout.db")
+
+
+def db_path() -> Path:
+    """
+    Where the database file lives.
+
+    SCOUT_DB_PATH points it at a mounted volume. That matters on any host with
+    ephemeral disk: this file holds every user account, login session, and run
+    record, so leaving it on the deploy's own filesystem logs everyone out
+    permanently on each redeploy and loses their history.
+
+    Read lazily, not at import, so it can't matter whether load_dotenv() has run
+    yet — getting that ordering wrong would silently write to the default path
+    instead of failing loudly.
+    """
+    override = os.getenv("SCOUT_DB_PATH")
+    return Path(override) if override else _DEFAULT_DB_PATH
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
@@ -86,21 +103,43 @@ class ReportRun(Base):
 
 # ── Engine ────────────────────────────────────────────────────────────────────
 
-engine = create_engine(
-    _DB_URL,
-    connect_args={"check_same_thread": False},  # required for SQLite + threading
-)
+_engine = None
+
+
+def get_engine():
+    """
+    The process-wide engine, built on first use.
+
+    Lazy so `db_path()` is resolved after the environment is loaded rather than
+    at import time.
+    """
+    global _engine
+    if _engine is None:
+        path = db_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _engine = create_engine(
+            f"sqlite:///{path}",
+            connect_args={"check_same_thread": False},  # SQLite + threading
+        )
+    return _engine
+
+
+def reset_engine() -> None:
+    """Drop the cached engine so the next call re-reads SCOUT_DB_PATH (tests)."""
+    global _engine
+    if _engine is not None:
+        _engine.dispose()
+    _engine = None
 
 
 def init_db() -> None:
     """Create all tables. Safe to call on every startup."""
-    _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    Base.metadata.create_all(engine)
+    Base.metadata.create_all(get_engine())
 
 
 def get_db() -> Session:
     """Return a new SQLAlchemy session. Caller is responsible for closing."""
-    return Session(engine)
+    return Session(get_engine())
 
 
 # ── CRUD helpers ──────────────────────────────────────────────────────────────

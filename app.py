@@ -75,7 +75,31 @@ app = FastAPI(title="Real Estate Deal Scout")
 templates = Jinja2Templates(directory="templates")
 templates.env.auto_reload = True
 
-_OUTPUTS_DIR = Path("outputs")
+_DEFAULT_OUTPUTS_DIR = Path("outputs")
+
+
+def outputs_dir() -> Path:
+    """
+    Where generated reports are written and served from.
+
+    SCOUT_OUTPUTS_DIR points it at a mounted volume. Reports are the thing a
+    shareable /reports/{run_id} URL resolves to, so on a host with ephemeral
+    disk every previously shared link 404s after a redeploy.
+
+    Read lazily rather than at import so load_dotenv() ordering can't silently
+    send reports to the default directory.
+    """
+    override = os.getenv("SCOUT_OUTPUTS_DIR")
+    return Path(override) if override else _DEFAULT_OUTPUTS_DIR
+
+
+def _report_path(run_id: str) -> Path:
+    """Path a run's report is written to, with the directory ensured."""
+    directory = outputs_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / f"web_{run_id}.html"
+
+
 _CONFIG_PATH = config_file.DEFAULT_CONFIG_PATH
 
 # In-memory pipeline state (resets on restart — reports persist on disk)
@@ -95,7 +119,7 @@ def _prune_outputs(max_age_days: int = 7) -> None:
     import time
     cutoff = time.time() - max_age_days * 86400
     pruned = 0
-    for f in _OUTPUTS_DIR.glob("*"):
+    for f in outputs_dir().glob("*"):
         if f.name == "run_log.jsonl" or not f.is_file():
             continue
         if f.stat().st_mtime < cutoff:
@@ -430,7 +454,7 @@ async def run_status(run_id: str):
 
 @app.get("/reports/{run_id}", response_class=FileResponse)
 async def view_report(run_id: str):
-    report_path = _OUTPUTS_DIR / f"web_{run_id}.html"
+    report_path = outputs_dir() / f"web_{run_id}.html"
     if not report_path.exists():
         raise HTTPException(status_code=404, detail="Report not found.")
     return FileResponse(report_path, media_type="text/html")
@@ -506,8 +530,7 @@ async def _run_single_property_bg(
         _runs[run_id]["progress"] = "[1/3] Enriching listing with market data..."
         shortlist = await run_single_property(url, config, progress_cb=_cb)
 
-        _OUTPUTS_DIR.mkdir(exist_ok=True)
-        report_path = _OUTPUTS_DIR / f"web_{run_id}.html"
+        report_path = _report_path(run_id)
 
         from tools.report import generate_report
         generate_report(shortlist, report_path, config.financial_assumptions)
@@ -629,8 +652,7 @@ async def _run_multi_property_bg(
             _runs[run_id]["progress"] = f"Analyzing {len(urls)} properties..."
         shortlist = await run_multi_property(urls, config)
 
-        _OUTPUTS_DIR.mkdir(exist_ok=True)
-        report_path = _OUTPUTS_DIR / f"web_{run_id}.html"
+        report_path = _report_path(run_id)
 
         from tools.report import generate_report
         generate_report(shortlist, report_path, config.financial_assumptions)
@@ -678,8 +700,7 @@ async def _run_pipeline_bg(
         _runs[run_id]["progress"] = "[1/6] Fetching listings from Redfin..."
         shortlist = await run_pipeline(config.output.market, config, progress_cb=_cb)
 
-        _OUTPUTS_DIR.mkdir(exist_ok=True)
-        report_path = _OUTPUTS_DIR / f"web_{run_id}.html"
+        report_path = _report_path(run_id)
 
         from tools.report import generate_report
         generate_report(shortlist, report_path, config.financial_assumptions)

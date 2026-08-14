@@ -162,13 +162,37 @@ output:
 > decisions all live in the **[Architecture & Code Guide](ARCHITECTURE.md)**. This README
 > stays focused on installing and running the tool.
 
+## Deploying
+
+Nothing needs setting for local use. When deploying, the only thing to get right is
+**where state lives**, because most small hosts (Render, Fly, Railway free tiers) give
+you an *ephemeral* filesystem that is wiped on every redeploy.
+
+Three env vars point that state at a mounted volume:
+
+| Variable | Default | What you lose without it |
+|---|---|---|
+| `SCOUT_DB_PATH` | `data/scout.db` | **Every user account, login session, and run record.** Not regenerable — everyone is logged out permanently. |
+| `SCOUT_OUTPUTS_DIR` | `outputs/` | Generated reports, so every `/reports/{run_id}` link already shared returns 404. |
+| `MARKET_TRENDS_DIR` | `data/` | The area-market slice. Regenerable — re-run `--market-refresh` after deploying. |
+
+```bash
+SCOUT_DB_PATH=/data/scout.db
+SCOUT_OUTPUTS_DIR=/data/reports
+MARKET_TRENDS_DIR=/data
+```
+
+Also set `BASE_URL` to your public origin so magic-link login emails point at the right
+host. Resource use is modest — a full market refresh peaks at ~61 MB, so a 256 MB
+instance is enough.
+
 ## Running Tests
 
 ```bash
 pytest
 ```
 
-442 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, area market context, settings loading, conversational intake, and full pipeline integration.
+455 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, area market context, settings loading, conversational intake, and full pipeline integration.
 
 > For the file-by-file layout, see the [Architecture & Code Guide](ARCHITECTURE.md#3-directory-map--what-each-file-does).
 

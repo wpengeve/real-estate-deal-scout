@@ -224,7 +224,7 @@
     <summary>Supporting folders</summary>
     <div class="details-body">
       <table>
-        <tr><td><code>tests/</code></td><td>442 automated tests — roughly one file per building block + a full pipeline test</td></tr>
+        <tr><td><code>tests/</code></td><td>455 automated tests — roughly one file per building block + a full pipeline test</td></tr>
         <tr><td><code>fixtures/</code></td><td>Fake sample listings for offline testing</td></tr>
         <tr><td><code>data/</code></td><td>Downloaded listing files, the <code>scout.db</code> database, and the area-market slice from <code>--market-refresh</code></td></tr>
         <tr><td><code>outputs/</code></td><td>Results of each run (auto-deleted after 7 days)</td></tr>
@@ -320,8 +320,23 @@ python scout.py --from-analyzed outputs/…_analyzed.json   # reuse saved data, 
   <code>ollama</code> is free but ranks poorly; <code>claude</code> is the quality option (needs the paid key —
   and is what the project runs today).</div>
 
+  <h3>Where state lives (matters only when deploying)</h3>
+  <p>Three things outlive a single run, and each defaults to a path inside the project:</p>
+  <table>
+    <tr><th>Env var</th><th>Default</th><th>Holds</th></tr>
+    <tr><td><code>SCOUT_DB_PATH</code></td><td><code>data/scout.db</code></td><td>Accounts, sessions, run history</td></tr>
+    <tr><td><code>SCOUT_OUTPUTS_DIR</code></td><td><code>outputs/</code></td><td>Generated reports (<code>/reports/{run_id}</code>)</td></tr>
+    <tr><td><code>MARKET_TRENDS_DIR</code></td><td><code>data/</code></td><td>The area-market slice</td></tr>
+  </table>
+  <p>Small hosts give you an <strong>ephemeral</strong> filesystem — wiped on every redeploy — so all three
+  want a mounted volume in production. Only the market slice is regenerable; the database is not, and losing
+  it logs every user out for good.</p>
+  <p>All three are read <strong>lazily</strong>, inside a function, never at import. That is deliberate:
+  <code>load_dotenv()</code> runs after some imports, so an import-time read would silently fall back to the
+  default and write state to the wrong place without ever erroring.</p>
+
   <h2 id="s8"><span class="num">8.</span> Testing</h2>
-  <p>The project has <strong>442 automated tests</strong> (run with <code>pytest</code>) — roughly one test file per
+  <p>The project has <strong>455 automated tests</strong> (run with <code>pytest</code>) — roughly one test file per
   building block, plus an end-to-end test of the whole pipeline. Outside services are faked during tests so they run
   fast and offline. Policy: the full suite must pass before every commit, and new code brings its own tests.</p>
 

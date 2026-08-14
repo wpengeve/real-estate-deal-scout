@@ -270,11 +270,29 @@ locates and reads it, shared by both entry points. The key settings:
 ranks poorly; `claude` is the quality option (needs the paid key — and is what the
 project runs today).
 
+### Where state lives (matters only when deploying)
+
+Three things outlive a single run, and each defaults to a path inside the project:
+
+| Env var | Default | Holds |
+|---------|---------|-------|
+| `SCOUT_DB_PATH` | `data/scout.db` | Accounts, sessions, run history |
+| `SCOUT_OUTPUTS_DIR` | `outputs/` | Generated reports (`/reports/{run_id}`) |
+| `MARKET_TRENDS_DIR` | `data/` | The area-market slice |
+
+Small hosts give you an **ephemeral** filesystem — wiped on every redeploy — so all
+three want a mounted volume in production. Only the market slice is regenerable; the
+database is not, and losing it logs every user out for good.
+
+All three are read **lazily**, inside a function, never at import. That is deliberate:
+`load_dotenv()` runs after some imports, so an import-time read would silently fall
+back to the default and write state to the wrong place without ever erroring.
+
 ---
 
 ## 8. Testing
 
-The project has **442 automated tests** (run with `pytest`) — roughly one test file
+The project has **455 automated tests** (run with `pytest`) — roughly one test file
 per building block, plus an end-to-end test of the whole pipeline. Outside services
 are faked during tests so they run fast and offline. Policy: the full test suite must
 pass before every commit, and any new code brings its own tests.

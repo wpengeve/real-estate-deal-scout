@@ -1,6 +1,6 @@
 # TODOS
 
-Last updated: 2026-08-12
+Last updated: 2026-08-14
 
 ---
 
@@ -12,11 +12,14 @@ Last updated: 2026-08-12
 `config.yaml`) → the pipeline pulls live listings, screens them, enriches with rent/schools/
 solar/zoning data, runs the financial analysis against *your* down payment and rate, flags
 risks, and produces an AI-ranked HTML report with maps, live sliders, and area market context.
-434 tests passing.
+455 tests passing.
 
 **Not deployed.** It runs on your machine only — there's no URL to send anyone. That's the
-one thing keeping Phase 1 open, and it's a decision (which host, where reports and accounts
-live), not a bug. Nothing is broken; see **Active → P1**.
+one thing keeping Phase 1 open. The *code* side is now ready: where the database, reports,
+and market slice live is env-configurable, so a redeploy no longer wipes accounts and
+shared links. What's left is choosing a host — and wiring real email for magic links,
+which today are printed to the server console and so block anyone but you from logging
+in. See **Active → P1**.
 
 **Most recent work (Aug 2026): Market Intelligence.** Every deal now shows how its city's
 market is behaving — months of supply, sale-to-list, share sold over asking, days to
@@ -27,8 +30,8 @@ API key. Run `python scout.py --market-refresh WA` once to switch it on.
 **Decided, so we don't revisit it:** no standalone market dashboard (Redfin already publishes
 one free from the same data), and no worker infrastructure yet (refresh is a manual command).
 
-**Next up when you want it:** P1 deployment. Smaller open items are P2 (tighter listing
-scope) and P3 (school district names).
+**Next up when you want it:** pick a host, then email delivery for magic links. Smaller
+open items are P2 (tighter listing scope) and P3 (school district names).
 
 ---
 
@@ -59,7 +62,7 @@ scope) and P3 (school district names).
 
 ### Infra / docs
 - **All API keys present** — Anthropic, Google Maps, HUD, NREL, Rentcast, ScraperAPI, Walk Score
-- **434 tests passing**
+- **455 tests passing**
 - **Architecture docs** — `ARCHITECTURE.md` + `ARCHITECTURE.html`
 
 ---
@@ -71,6 +74,41 @@ scope) and P3 (school district names).
 where reports live long-term (currently disk, pruned after 7 days).
 **Why:** "Share a URL" (the Phase 1 goal) needs a persistent public host.
 **Effort:** M.
+
+**Groundwork done 2026-08-14 — the code half is finished; what's left is the hosting
+decision.** This was framed purely as a decision, but there was a concrete blocker
+underneath it: `db.py` and `app.py` hardcoded `data/scout.db` and `outputs/` as
+relative paths with no override. On any host with an ephemeral filesystem, *every
+redeploy would have wiped all user accounts, sessions, and reports* — magic-link auth
+logging everyone out permanently, and every shared `/reports/{run_id}` link 404ing.
+Nothing would have errored; the state would simply have been gone.
+
+Both are now env-overridable, matching `MARKET_TRENDS_DIR`:
+
+| Env var | Default | Regenerable? |
+|---|---|---|
+| `SCOUT_DB_PATH` | `data/scout.db` | **No** — accounts, sessions, run history |
+| `SCOUT_OUTPUTS_DIR` | `outputs/` | No — shared report URLs resolve here |
+| `MARKET_TRENDS_DIR` | `data/` | Yes — re-run `--market-refresh` |
+
+All three read the environment lazily inside a function rather than at import, because
+`load_dotenv()` runs after some imports and an import-time read would silently use the
+default. The SQLAlchemy engine is built on first use for the same reason. Verified live:
+with both vars pointed at a scratch volume, startup created the nested directories,
+wrote the database there, and a user round-tripped across a simulated restart; the real
+`data/scout.db` was untouched. Documented in `README.md` (Deploying), `.env.example`,
+and `ARCHITECTURE.md` §7. 13 tests.
+
+**Still open, and genuinely decisions:**
+- Which host. Sizing is not a constraint (measured: ~61 MB peak, runs on a 256 MB tier).
+- Whether to stay on SQLite-on-a-volume or move to managed Postgres. SQLite is fine for
+  one instance; it does not survive horizontal scaling. Postgres would mean a
+  `DATABASE_URL`, a driver dependency, and testing the schema off SQLite — deliberately
+  not started, since it's wasted work if a volume is enough.
+- Email delivery for magic links. Currently the link is printed to the server console,
+  which is unusable once it's not your own terminal. **This blocks real multi-user use
+  more than hosting does** — a stranger can't log in at all today.
+- `BASE_URL` must be set to the public origin or magic links point at localhost.
 
 ### P2 — Tighter listing scope
 **What:** Scope ScraperAPI/Rentcast queries more tightly to target cities to cut junk
