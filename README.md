@@ -182,8 +182,16 @@ SCOUT_OUTPUTS_DIR=/data/reports
 MARKET_TRENDS_DIR=/data
 ```
 
-Also set `BASE_URL` to your public origin so magic-link login emails point at the right
-host. Resource use is modest — a full market refresh peaks at ~61 MB, so a 256 MB
+Two more for login email, which is what lets anyone but you sign in:
+
+- `BASE_URL` — your public origin. Without it, login links point at `localhost` and are
+  delivered but unusable.
+- `RESEND_API_KEY` — emails the magic link. Left unset, the link is only printed to the
+  server console, so nobody else can log in. Resend also needs a **verified sending
+  domain**; until you have one its shared onboarding address delivers to your own
+  address only. Optionally set `EMAIL_FROM` to the sender you want shown.
+
+Resource use is modest — a full market refresh peaks at ~61 MB, so a 256 MB
 instance is enough.
 
 ## Running Tests
@@ -192,7 +200,7 @@ instance is enough.
 pytest
 ```
 
-473 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, area market context, settings loading, conversational intake, and full pipeline integration.
+484 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, area market context, settings loading, conversational intake, and full pipeline integration.
 
 > For the file-by-file layout, see the [Architecture & Code Guide](ARCHITECTURE.md#3-directory-map--what-each-file-does).
 

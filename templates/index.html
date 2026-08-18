@@ -348,7 +348,12 @@ https://www.redfin.com/city/9065/WA/Kirkland/filter/min-beds=3,max-price=2250000
   <div class="auth-card">
     <div id="auth-form-wrap">
       <h2>Sign in</h2>
-      <p>Enter your email and we'll send you a magic link to sign in (check the server console during dev).</p>
+      {% if email_configured %}
+      <p>Enter your email and we'll send you a magic link to sign in. No password needed.</p>
+      {% else %}
+      <p>Enter your email and we'll send you a magic link to sign in. Email delivery isn't
+         configured on this server, so the link is printed to the server console.</p>
+      {% endif %}
       <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email">
       <button class="btn-primary btn-full" onclick="requestMagicLink()">Send magic link</button>
       <div class="auth-cancel"><button class="btn-link" onclick="closeAuthModal()">Cancel</button></div>

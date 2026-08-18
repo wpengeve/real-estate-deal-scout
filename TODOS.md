@@ -1,6 +1,6 @@
 # TODOS
 
-Last updated: 2026-08-14
+Last updated: 2026-08-17
 
 ---
 
@@ -12,14 +12,13 @@ Last updated: 2026-08-14
 `config.yaml`) → the pipeline pulls live listings, screens them, enriches with rent/schools/
 solar/zoning data, runs the financial analysis against *your* down payment and rate, flags
 risks, and produces an AI-ranked HTML report with maps, live sliders, and area market context.
-473 tests passing.
+484 tests passing.
 
 **Not deployed.** It runs on your machine only — there's no URL to send anyone. That's the
 one thing keeping Phase 1 open. The *code* side is now ready: where the database, reports,
 and market slice live is env-configurable, so a redeploy no longer wipes accounts and
-shared links. What's left is choosing a host — and wiring real email for magic links,
-which today are printed to the server console and so block anyone but you from logging
-in. See **Active → P1**.
+shared links, and login links are now emailed for real. What's left is choosing a host
+and verifying a sending domain. See **Active → P1**.
 
 **Most recent work (Aug 2026): Market Intelligence.** Every deal now shows how its city's
 market is behaving — months of supply, sale-to-list, share sold over asking, days to
@@ -30,8 +29,9 @@ API key. Run `python scout.py --market-refresh WA` once to switch it on.
 **Decided, so we don't revisit it:** no standalone market dashboard (Redfin already publishes
 one free from the same data), and no worker infrastructure yet (refresh is a manual command).
 
-**Next up when you want it:** pick a host, then email delivery for magic links. Smaller
-open items are P2 (tighter listing scope) and P3 (school district names).
+**Next up when you want it:** pick a host, and verify a sending domain so login email
+reaches strangers. Smaller open items are P2 (tighter listing scope) and P3 (school
+district names).
 
 ---
 
@@ -62,7 +62,7 @@ open items are P2 (tighter listing scope) and P3 (school district names).
 
 ### Infra / docs
 - **All API keys present** — Anthropic, Google Maps, HUD, NREL, Rentcast, ScraperAPI, Walk Score
-- **473 tests passing**
+- **484 tests passing**
 - **Architecture docs** — `ARCHITECTURE.md` + `ARCHITECTURE.html`
 
 ---
@@ -105,21 +105,21 @@ and `ARCHITECTURE.md` §7. 13 tests.
   one instance; it does not survive horizontal scaling. Postgres would mean a
   `DATABASE_URL`, a driver dependency, and testing the schema off SQLite — deliberately
   not started, since it's wasted work if a volume is enough.
-- Email delivery for magic links. Currently the link is printed to the server console,
-  which is unusable once it's not your own terminal. **This blocks real multi-user use
-  more than hosting does** — a stranger can't log in at all today.
-  **Module built 2026-08-14, deliberately NOT wired.** `tools/email_sender.py` renders
-  and sends the login email via Resend (free tier 3,000/month; no new dependency — it's
-  one JSON POST through the `httpx` already in use). Reviewed and approved as a design;
-  committed unwired because wiring it changes nothing until a sending domain is verified,
-  and because dead-but-tested code is easier to review than a half-live login path.
-  18 tests, all failure paths included — no key, 4xx, 5xx, DNS failure, timeout — since
-  a login attempt must never 500 because a mail provider is down.
-  **To finish it:** set `RESEND_API_KEY`, verify a sending domain (until then Resend's
-  shared address only delivers to your own inbox), then call `send_magic_link()` from
-  `app.request_magic_link` keeping the console print as the fallback when it returns
-  False. Gmail SMTP with an app password is the alternative if a domain isn't wanted.
-- `BASE_URL` must be set to the public origin or magic links point at localhost.
+- Email delivery for magic links — **wired 2026-08-17; the remaining work is account
+  setup, not code.** `app.request_magic_link` now calls `send_magic_link()` (Resend, via
+  the `httpx` already in use — no new dependency), off the event loop so a slow provider
+  can't stall the process for its 10s timeout. When the send fails or no key is set it
+  falls back to the console print exactly as before, and the UI says which happened
+  rather than claiming an email that never left. A *successful* send no longer logs the
+  link: inside its 15-minute TTL it's a live credential, and host logs are readable by
+  more people than an inbox. 11 wiring tests on top of the module's 18.
+  **What's left, and it's the part that decides whether strangers can log in:**
+  set `RESEND_API_KEY` and verify a sending domain at resend.com. Until a domain is
+  verified, Resend's shared onboarding address only delivers to your own inbox, so the
+  app still can't onboard anyone else — nothing in the code changes when you do it.
+  Gmail SMTP with an app password is the alternative if a domain isn't wanted.
+- `BASE_URL` must be set to the public origin or magic links point at localhost —
+  delivered, and useless. Now listed in `.env.example` next to the mail keys.
 
 ### P2 — Tighter listing scope
 **What:** Scope ScraperAPI/Rentcast queries more tightly to target cities to cut junk

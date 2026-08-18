@@ -149,8 +149,10 @@ That flow is the whole product.
 
 **Chat & output:**
 - `email_sender.py` — Renders and sends the magic-link login email (via Resend).
-  **Not wired in yet** — `app.py` still prints the link to the server console; this is
-  committed ahead of that so the email could be reviewed on its own. See TODOS.md → P1.
+  Called by `app.py` on every login request. Without `RESEND_API_KEY` — or if the
+  provider is down — it returns False rather than raising, and `app.py` falls back to
+  printing the link to the server console. Sending for real also needs a verified
+  domain; see TODOS.md → P1.
 - `chat_intake.py` — The command-line chat: turns "3-bed rentals under $900k" into settings.
 - `web_chat.py` — The website version of that chat; also answers follow-up questions
   about the results ("compare deal #1 and #3").
@@ -223,7 +225,10 @@ formatted card per deal in the terminal.
 ### Website — `app.py` (FastAPI)
 A full web app:
 - **Chat interface** at `/` — describe what you want in the browser
-- **Login** by email "magic link" (you get a link, clicking it logs you in — no password)
+- **Login** by email "magic link" (you get a link, clicking it logs you in — no password).
+  The link is emailed when `RESEND_API_KEY` is set, and printed to the server console
+  otherwise, so local development needs no mail setup. On a successful send the link is
+  deliberately kept out of the logs — inside its 15-minute TTL it is a live credential.
 - **Background runs** — the site kicks off a pipeline run and shows a live progress bar
 - **Reports** — each finished run gets its own shareable page (`/reports/{id}`)
 - **History** — logged-in users can see their past runs
@@ -295,7 +300,7 @@ back to the default and write state to the wrong place without ever erroring.
 
 ## 8. Testing
 
-The project has **473 automated tests** (run with `pytest`) — roughly one test file
+The project has **484 automated tests** (run with `pytest`) — roughly one test file
 per building block, plus an end-to-end test of the whole pipeline. Outside services
 are faked during tests so they run fast and offline. Policy: the full test suite must
 pass before every commit, and any new code brings its own tests.

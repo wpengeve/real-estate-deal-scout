@@ -20,7 +20,7 @@ Usage:
 Endpoints:
     GET  /                        — chat UI
     GET  /history                 — past reports (logged-in users)
-    POST /api/auth/request        — request magic link (prints to console)
+    POST /api/auth/request        — request magic link (emailed; console fallback)
     GET  /auth/verify             — verify token, set session cookie
     POST /api/logout              — clear session
     GET  /api/me                  — current user or null
@@ -64,6 +64,7 @@ from db import (  # noqa: E402
 )
 from pipeline import run as run_pipeline, run_single_property, run_multi_property  # noqa: E402
 from tools import config_file  # noqa: E402
+from tools.email_sender import is_configured as email_is_configured, send_magic_link  # noqa: E402
 from tools.fetch import resolve_address_to_url  # noqa: E402
 from tools.models import InvestmentConfig
 from tools.web_chat import ChatSession
@@ -152,7 +153,10 @@ def _load_base_config() -> InvestmentConfig:
 async def index(request: Request, user=Depends(get_current_user)):
     return templates.TemplateResponse(
         request, "index.html",
-        {"user_email": user.email if user else None},
+        {
+            "user_email": user.email if user else None,
+            "email_configured": email_is_configured(),
+        },
     )
 
 
@@ -188,11 +192,19 @@ async def request_magic_link(req: AuthRequest, db: Session = Depends(get_db)):
     base_url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
     link = f"{base_url}/auth/verify?token={token.token}"
 
-    # No email service yet — print to console for dev/testing
+    # send_magic_link is blocking httpx; off the event loop so a slow provider
+    # doesn't stall every other request for up to its 10s timeout.
+    sent = await asyncio.to_thread(send_magic_link, email, link)
+
+    if sent:
+        # Deliberately not logged: a live login link in the host's logs is a
+        # credential anyone with log access can use inside the TTL.
+        return {"message": f"Magic link sent to {email}. Check your inbox."}
+
+    # No key, or the provider was down — the console link is the way in.
     logger.info("Magic link for %s: %s", email, link)
     print(f"\n🔗 Magic link for {email}:\n   {link}\n")
-
-    return {"message": f"Magic link sent to {email} (check server console for now)"}
+    return {"message": f"Magic link for {email} printed to the server console."}
 
 
 @app.get("/auth/verify")

@@ -1,10 +1,9 @@
 """
 Transactional email — currently just the magic-link login.
 
-NOT WIRED IN YET. Nothing calls this: `app.request_magic_link` still prints the
-link to the server console. The module and its template are committed ahead of
-that so the email can be reviewed on its own, and because wiring it is pointless
-until a sending domain is verified. See TODOS.md → P1.
+Called by `app.request_magic_link`. When the send succeeds the link goes only to
+the recipient's inbox; when it fails — or when no key is set — the caller prints
+the link to the server console instead, which is the local-development path.
 
 Provider is Resend: free tier is 3,000 emails/month and 100/day, which is far
 past anything this needs, and the API is a single JSON POST so there's no SDK to
