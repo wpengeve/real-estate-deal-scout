@@ -28,7 +28,7 @@ from pathlib import Path
 import httpx
 
 from tools.geocode import geocode_address
-from tools.models import FetchConfig, RawListing
+from tools.models import FetchConfig, RawListing, ScreeningCriteria
 from tools.scraperapi_normalizer import normalize_all
 
 logger = logging.getLogger(__name__)
@@ -592,11 +592,58 @@ _REDFIN_CITY_TABLE: dict[str, tuple[str, str]] = {
 }
 
 
+def redfin_filter_string(criteria: ScreeningCriteria) -> str:
+    """
+    Build the `/filter/...` segment of a Redfin search URL from our criteria.
+
+    Every criterion pushed here is one Redfin excludes server-side. That matters
+    more than the saved credit: the structured endpoint returns a single page of
+    ~43 listings per call, so a listing that only fails screening later has
+    occupied a slot a real candidate could have had.
+
+    Slugs are Redfin's undocumented URL vocabulary, so each one below was
+    verified against live Seattle results on 2026-08-18 rather than assumed —
+    an unrecognised slug is silently ignored, which looks identical to a filter
+    that matched everything:
+
+      min-beds, max-price   already in use
+      min-price=1500000     min listing price rose 700,000 → 1,519,000    ✓
+      min-baths=2.5         min baths rose 1.5 → 2.5                       ✓
+      hoa=0                 43 condo results → 20 ("no HOA fee")          ✓
+      hoa=50                43 condo results → 30 (cap is a monthly $)    ✓
+      max-hoa=0             IGNORED — result still included a $1,556 HOA  ✗
+
+    Deliberately not pushed: `max_dom`. Redfin only takes coarse buckets
+    (1wk/2wk/1mo…), so any mapping either over-filters or is a no-op, and DOM is
+    cheap to screen locally.
+    """
+    parts = [f"min-beds={criteria.min_beds}", f"max-price={int(criteria.max_price)}"]
+
+    if criteria.min_price is not None:
+        parts.append(f"min-price={int(criteria.min_price)}")
+    if criteria.min_baths is not None:
+        # Redfin accepts halves (2.5); trim 2.0 → 2 so the URL matches its own.
+        baths = criteria.min_baths
+        parts.append(f"min-baths={int(baths) if baths == int(baths) else baths}")
+    if criteria.max_hoa_fee is not None:
+        # hoa=0 is Redfin's "No HOA fee" option, which is exactly what
+        # max_hoa_fee=0 means to us.
+        parts.append(f"hoa={int(criteria.max_hoa_fee)}")
+
+    type_slugs = [
+        _HOME_TYPE_TO_REDFIN_SLUG[ht]
+        for ht in (criteria.preferred_home_types or [])
+        if ht in _HOME_TYPE_TO_REDFIN_SLUG
+    ]
+    if type_slugs:
+        parts.append("property-type=" + "+".join(type_slugs))
+
+    return ",".join(parts)
+
+
 async def resolve_city_urls(
     cities: list[str],
-    max_price: float,
-    min_beds: int,
-    home_types: list[str] | None = None,
+    criteria: ScreeningCriteria,
     max_cities: int = 3,
 ) -> list[str]:
     """
@@ -609,20 +656,15 @@ async def resolve_city_urls(
 
     Args:
         cities:     City names to resolve (e.g. ["Los Angeles", "Pasadena"]).
-        max_price:  Maximum listing price in USD.
-        min_beds:   Minimum number of bedrooms.
-        home_types: Optional list of property types to filter by.
+        criteria:   Screening criteria — everything Redfin can filter on is
+                    pushed into the URL by redfin_filter_string().
         max_cities: Cap on the number of URLs returned.
 
     Returns:
         List of Redfin filter URLs. May be shorter than `cities` if some can't
         be resolved. Returns [] on total failure.
     """
-    type_slugs = [_HOME_TYPE_TO_REDFIN_SLUG[ht] for ht in (home_types or []) if ht in _HOME_TYPE_TO_REDFIN_SLUG]
-    filter_parts = [f"min-beds={min_beds}", f"max-price={int(max_price)}"]
-    if type_slugs:
-        filter_parts.append("property-type=" + "+".join(type_slugs))
-    filter_str = ",".join(filter_parts)
+    filter_str = redfin_filter_string(criteria)
 
     resolved: list[str] = []
 
@@ -1009,6 +1051,61 @@ async def _geocode_listings(
 
 # ── Rentcast backend ───────────────────────────────────────────────────────────
 
+# An upper bound for min-only criteria, because Rentcast documents ranges as
+# "min:max" and says nothing about open-ended forms like "3:". No home this
+# pipeline would shortlist has 30 bedrooms or bathrooms, so the cap filters
+# nothing in practice while keeping to syntax the API documents.
+_RENTCAST_RANGE_MAX = 30
+
+
+def _rentcast_query_params(fetch_config: FetchConfig) -> dict:
+    """
+    Build the /listings/sale query from our criteria.
+
+    Rentcast's parameter names are not the obvious ones, and it ignores what it
+    does not recognise rather than erroring — so a wrong name reads exactly like
+    a filter that matched everything. Per the API reference (checked 2026-08-18)
+    there is no minPrice/maxPrice at all: price, bedrooms, bathrooms and
+    squareFootage are single parameters taking either one value, a "min:max"
+    range, or "a|b" alternatives.
+
+    This matters twice over on the free tier's 50 calls/month: an unfiltered
+    query pages through every active listing in the city at 500 per call, and a
+    bare `bedrooms=3` means *exactly* three — quietly dropping the 4- and 5-bed
+    homes that a 3-bed minimum is supposed to include.
+
+    Unverified against a live response: the key on this machine returns 403
+    billing/subscription-inactive, so this follows the documentation.
+    """
+    params: dict = {"status": "Active", "limit": 500}
+
+    lo, hi = fetch_config.rentcast_min_price, fetch_config.rentcast_max_price
+    if hi is not None:
+        params["price"] = f"{int(lo or 0)}:{int(hi)}"
+    # A min with no max is left to local screening rather than guessed at: a
+    # documented range needs both ends, and price_too_low is cheap to catch here.
+
+    if fetch_config.rentcast_min_beds is not None:
+        params["bedrooms"] = f"{int(fetch_config.rentcast_min_beds)}:{_RENTCAST_RANGE_MAX}"
+    if fetch_config.rentcast_min_baths is not None:
+        baths = fetch_config.rentcast_min_baths
+        lo_baths = int(baths) if baths == int(baths) else baths
+        params["bathrooms"] = f"{lo_baths}:{_RENTCAST_RANGE_MAX}"
+
+    if fetch_config.rentcast_home_types:
+        mapped = [_HOME_TYPE_TO_RENTCAST.get(t, t) for t in fetch_config.rentcast_home_types]
+        # Alternatives are pipe-separated, so several types no longer mean no
+        # filter at all — which is what the single-type-only branch used to do.
+        params["propertyType"] = "|".join(mapped)
+
+    # daysOld takes a single value as its maximum. max_dom carries 9999 as its
+    # "no limit" sentinel; sending that would be a filter matching everything.
+    if fetch_config.rentcast_max_dom is not None and 1 <= fetch_config.rentcast_max_dom < 9999:
+        params["daysOld"] = int(fetch_config.rentcast_max_dom)
+
+    return params
+
+
 async def _fetch_from_rentcast(fetch_config: FetchConfig) -> list[RawListing]:
     """
     Fetch active sale listings from the Rentcast API.
@@ -1035,21 +1132,7 @@ async def _fetch_from_rentcast(fetch_config: FetchConfig) -> list[RawListing]:
             "criteria.allowed_cities and the market name — check pipeline.py."
         )
 
-    # Build base query params (city/state added per iteration)
-    base_params: dict = {"status": "Active", "limit": 500}
-    if fetch_config.rentcast_max_price is not None:
-        base_params["maxPrice"] = int(fetch_config.rentcast_max_price)
-    if fetch_config.rentcast_min_price is not None:
-        base_params["minPrice"] = int(fetch_config.rentcast_min_price)
-    if fetch_config.rentcast_min_beds is not None:
-        base_params["bedrooms"] = int(fetch_config.rentcast_min_beds)
-    if fetch_config.rentcast_min_baths is not None:
-        base_params["bathrooms"] = fetch_config.rentcast_min_baths
-    if fetch_config.rentcast_home_types:
-        mapped = [_HOME_TYPE_TO_RENTCAST.get(t, t) for t in fetch_config.rentcast_home_types]
-        if len(mapped) == 1:
-            base_params["propertyType"] = mapped[0]
-        # Multi-type filter not supported by Rentcast; screening handles it post-fetch
+    base_params = _rentcast_query_params(fetch_config)
 
     all_listings: list[RawListing] = []
     seen: set[str] = set()
@@ -1087,6 +1170,16 @@ async def _fetch_from_rentcast(fetch_config: FetchConfig) -> list[RawListing]:
                             raise RuntimeError(
                                 "Rentcast API rate limit exceeded. "
                                 "Try again later or upgrade your plan."
+                            ) from e
+                        if code == 403:
+                            # The key is valid but the subscription lapsed. The
+                            # generic message below sent you looking for a bad
+                            # city name instead of the dashboard.
+                            raise RuntimeError(
+                                "Rentcast rejected the request: the API key has no active "
+                                "subscription. Re-activate the free tier at "
+                                "https://app.rentcast.io/app/api — or switch "
+                                "fetch.data_source to scraperapi in config.yaml."
                             ) from e
                         raise RuntimeError(
                             f"Rentcast returned HTTP {code} for {city}, {state}"

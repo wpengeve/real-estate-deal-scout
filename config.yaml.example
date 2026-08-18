@@ -29,6 +29,10 @@ fetch:
   scraperapi_search_urls: []
   # URLs above are intentionally empty — pipeline auto-resolves from criteria.allowed_cities
   # via resolve_city_urls(). This avoids stale hardcoded county IDs (Redfin changes them).
+  # The resolved URL also carries your criteria (min_beds, price range, min_baths,
+  # max_hoa_fee, preferred_home_types) so Redfin filters server-side. One call returns
+  # ~43 listings, so anything filtered locally instead would cost you a result slot.
+  # Pasting your own URL here opts out of that — its filters are used as-is.
 
   # Rentcast — only used when data_source: rentcast
   # All fields below are auto-populated by the pipeline from criteria.allowed_cities.
@@ -36,6 +40,9 @@ fetch:
   # Sign up free (50 calls/mo): https://app.rentcast.io/app/login
   # rentcast_cities: []    # auto-filled — up to 3 from allowed_cities
   # rentcast_state: ""     # auto-filled — extracted from output.market ("Seattle, WA" → "WA")
+  # Price, beds, baths, home types and max_dom are sent as Rentcast query filters too.
+  # Unfiltered, a city query pages through every active listing at 500 per call —
+  # expensive against a 50-call monthly allowance.
 
 enrich:
   hud_rent_multiplier: 1.0       # Validated against Zillow Rent Zestimate (Apr 2026): HUD FMR

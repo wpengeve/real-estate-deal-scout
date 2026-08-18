@@ -147,7 +147,14 @@ async def run(
     """
     _OUTPUTS_DIR.mkdir(exist_ok=True)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    run_log: dict = {"run_id": run_id, "market": market}
+    # data_source is logged because the run log is the only record of which
+    # backend produced a run — without it, "these rejects came from the CSVs"
+    # is guesswork after the fact.
+    run_log: dict = {
+        "run_id": run_id,
+        "market": market,
+        "data_source": config.fetch.data_source,
+    }
 
     with Progress(
         SpinnerColumn(),
@@ -172,9 +179,7 @@ async def run(
             console.log("[dim]Auto-resolving Redfin search URLs for market...[/dim]")
             resolved = await resolve_city_urls(
                 config.criteria.allowed_cities,
-                max_price=config.criteria.max_price,
-                min_beds=config.criteria.min_beds,
-                home_types=config.criteria.preferred_home_types,
+                config.criteria,
                 max_cities=1,
             )
             if resolved:
@@ -210,6 +215,7 @@ async def run(
                 "rentcast_min_price": config.criteria.min_price,
                 "rentcast_min_beds": config.criteria.min_beds,
                 "rentcast_min_baths": config.criteria.min_baths,
+                "rentcast_max_dom": config.criteria.max_dom,
                 "rentcast_home_types": config.criteria.preferred_home_types,
             })
             console.log(

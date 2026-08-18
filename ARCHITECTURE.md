@@ -105,6 +105,13 @@ That flow is the whole product.
 - `fetch.py` — The biggest file. Gets listings from any of four sources: **fixtures**
   (fake sample data for testing), **Redfin CSV** (a downloaded file), **ScraperAPI**
   (pulls live Redfin data), or **Rentcast** (a live listings API).
+  Both live backends are asked for as narrow a set as they can express — beds,
+  price range, baths, HOA ceiling, home types — rather than filtering afterwards.
+  One ScraperAPI call returns a single page of ~43 listings, so a home that only
+  fails screening later has taken a slot a real candidate could have had. Both
+  APIs *ignore* parameters they don't recognise, which looks exactly like a
+  filter that matched everything, so `redfin_filter_string()` records which
+  slugs were checked against live results and when.
 - `scraperapi_normalizer.py` — Cleans up the messy data ScraperAPI returns into a tidy `RawListing`.
 - `geocode.py` — Turns a street address into map coordinates (via Google Maps).
 - `single_property.py` — The "just analyze this one house" path (from a Redfin link).
@@ -300,7 +307,7 @@ back to the default and write state to the wrong place without ever erroring.
 
 ## 8. Testing
 
-The project has **484 automated tests** (run with `pytest`) — roughly one test file
+The project has **506 automated tests** (run with `pytest`) — roughly one test file
 per building block, plus an end-to-end test of the whole pipeline. Outside services
 are faked during tests so they run fast and offline. Policy: the full test suite must
 pass before every commit, and any new code brings its own tests.

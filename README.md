@@ -200,7 +200,7 @@ instance is enough.
 pytest
 ```
 
-484 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, area market context, settings loading, conversational intake, and full pipeline integration.
+506 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, area market context, settings loading, conversational intake, and full pipeline integration.
 
 > For the file-by-file layout, see the [Architecture & Code Guide](ARCHITECTURE.md#3-directory-map--what-each-file-does).
 

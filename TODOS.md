@@ -12,7 +12,7 @@ Last updated: 2026-08-17
 `config.yaml`) → the pipeline pulls live listings, screens them, enriches with rent/schools/
 solar/zoning data, runs the financial analysis against *your* down payment and rate, flags
 risks, and produces an AI-ranked HTML report with maps, live sliders, and area market context.
-484 tests passing.
+506 tests passing.
 
 **Not deployed.** It runs on your machine only — there's no URL to send anyone. That's the
 one thing keeping Phase 1 open. The *code* side is now ready: where the database, reports,
@@ -30,8 +30,9 @@ API key. Run `python scout.py --market-refresh WA` once to switch it on.
 one free from the same data), and no worker infrastructure yet (refresh is a manual command).
 
 **Next up when you want it:** pick a host, and verify a sending domain so login email
-reaches strangers. Smaller open items are P2 (tighter listing scope) and P3 (school
-district names).
+reaches strangers. P2 (tighter listing scope) is done; P3 (school district names) is
+still open, and two new items came out of P2 — Redfin result paging, and a lapsed
+Rentcast subscription.
 
 ---
 
@@ -62,7 +63,7 @@ district names).
 
 ### Infra / docs
 - **All API keys present** — Anthropic, Google Maps, HUD, NREL, Rentcast, ScraperAPI, Walk Score
-- **484 tests passing**
+- **506 tests passing**
 - **Architecture docs** — `ARCHITECTURE.md` + `ARCHITECTURE.html`
 
 ---
@@ -121,11 +122,71 @@ and `ARCHITECTURE.md` §7. 13 tests.
 - `BASE_URL` must be set to the public origin or magic links point at localhost —
   delivered, and useless. Now listed in `.env.example` next to the mail keys.
 
-### P2 — Tighter listing scope
-**What:** Scope ScraperAPI/Rentcast queries more tightly to target cities to cut junk
-(far-out suburbs still slip through before the city filter).
-**Why:** Fewer junk listings = faster pipeline, cleaner results, fewer API credits.
-**Effort:** S.
+### P2 — Tighter listing scope — ✓ done 2026-08-18
+**Shipped:** every criterion either backend can express is now sent as part of the
+query instead of being filtered locally afterwards.
+
+**The premise turned out to be wrong, and the measurement is worth keeping.** P2 was
+written as "far-out suburbs slip through the city filter." They don't — not on the live
+paths. Across 430 logged runs, 1,080 listings were dropped as `city_not_in_target_area`,
+and a live ScraperAPI call for Seattle returns 41 Seattle listings out of 41 parseable
+ones. All of that junk came from the **CSV** backend, where a Redfin export covers a
+drawn map area rather than a city. The live paths were already city-tight.
+
+What was actually leaking was different, and worse:
+
+- **Rentcast was sent parameters that do not exist.** `minPrice`/`maxPrice` are not
+  parameters of `/listings/sale` — the endpoint takes a single `price` param as a
+  `"min:max"` range. Rentcast ignores what it doesn't recognise, so every query pulled
+  *every* active listing in the city at any price, paged 500 at a time, against a
+  50-call monthly allowance. Same for the rest: `bedrooms=3` matches **exactly** three,
+  so a 3-bed *minimum* was quietly discarding 4- and 5-bed homes, and more than one home
+  type meant no type filter at all. Now: `price`, `bedrooms`, `bathrooms` as ranges,
+  `propertyType` pipe-separated, `daysOld` from `max_dom`.
+- **Redfin's `max-hoa=` slug is silently ignored** — a $1,556/month listing came back
+  under it. The real one is `hoa=` (`hoa=0` is the site's "No HOA fee" option): 43 condo
+  results dropped to 20 with `hoa=0`, and to 30 with `hoa=50`. `min-price` and
+  `min-baths` verified working the same way and are now pushed too.
+- **A slot, not a credit, is the scarce thing.** One ScraperAPI call returns a single
+  page of ~43 listings, so any home that only fails screening later has taken a place a
+  real candidate could have had. That is the reason to push filters up, and it's now
+  written where the filter string is built.
+
+`max_dom` is deliberately *not* pushed to Redfin: it only accepts coarse buckets
+(1wk/2wk/1mo), so any mapping either over-filters or does nothing.
+
+Both APIs ignore unknown parameters rather than erroring, which is indistinguishable
+from a filter that matched everything — the same silent-wrong-answer failure as the
+region-ID trap below. So each Redfin slug was verified against live Seattle results on
+2026-08-18 and the evidence is recorded next to the code. Rentcast's could not be: see
+the subscription item below. 22 tests.
+
+The run log now records `data_source`, because working out that the junk was CSV-only
+took reconstructing it from listing counts.
+
+### P2a — Redfin paging: we read 1 page of 9
+**What:** The structured ScraperAPI response for a Seattle search carries a
+`next_pages` list with 8 more pages — ~370 listings available, ~43 fetched. Every run
+sees the first page only.
+**Why:** This is now the binding limit on result quality, and it's invisible: the
+pipeline reports "43 listings fetched" as if that were the market.
+**The catch, and why this isn't autonomous:** each page is another 25-credit call, so
+following all of them is a 9× credit multiplier per run — 225 of the 1,000 free
+monthly credits for one search. Worth deciding deliberately: fetch N pages with N
+configurable, or leave it at one and say so in the UI.
+**Effort:** S to implement, the sizing is the real decision.
+
+### P2b — Rentcast subscription is inactive
+**What:** The key in `.env` returns `403 billing/subscription-inactive`. The
+multi-market backend is dead until the free tier is re-activated at
+app.rentcast.io — nothing in the code can work around it.
+**Why:** It's the only non-WA path; ScraperAPI/Redfin is the primary one, so this is
+not urgent, but the new query changes above are documentation-derived and **unverified
+against a live response** for exactly this reason.
+**Fixed meanwhile:** a 403 used to surface as "Rentcast returned HTTP 403 for
+Seattle, WA", which reads like a bad city name. It now names the subscription and
+links the dashboard.
+**Effort:** none in code — an account action.
 
 ### P3 — School district name for real listings
 **What:** `school_district` field is null for scraped listings (no good free source).

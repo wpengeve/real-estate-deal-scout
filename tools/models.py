@@ -30,6 +30,7 @@ class FetchConfig(BaseModel):
     rentcast_min_price: float | None = None
     rentcast_min_beds: int | None = None
     rentcast_min_baths: float | None = None
+    rentcast_max_dom: int | None = None
     rentcast_home_types: list[str] | None = None
 
 

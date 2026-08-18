@@ -208,7 +208,7 @@
       <p><span class="stage-tag">dictionary</span><strong>models.py</strong> — the definitions of every kind of data the pipeline passes around (a "listing," an "analyzed deal," the final "shortlist"). The project's shared vocabulary — read this first. Key ones: <code>InvestmentConfig</code>, <code>RawListing</code>, <code>Shortlist</code>.</p>
       <table>
         <tr><th>Stage</th><th>Files</th></tr>
-        <tr><td><span class="stage-tag">1 fetch</span></td><td><code>fetch.py</code> (4 sources: fixtures/CSV/ScraperAPI/Rentcast), <code>scraperapi_normalizer.py</code> (tidy the messy data), <code>geocode.py</code> (address→coordinates), <code>single_property.py</code> (one house from a link)</td></tr>
+        <tr><td><span class="stage-tag">1 fetch</span></td><td><code>fetch.py</code> (4 sources: fixtures/CSV/ScraperAPI/Rentcast), <code>scraperapi_normalizer.py</code> (tidy the messy data), <code>geocode.py</code> (address→coordinates), <code>single_property.py</code> (one house from a link). Both live backends are queried as narrowly as they can express &mdash; beds, price range, baths, HOA ceiling, home types &mdash; because one ScraperAPI call returns a single ~43-listing page, so a home filtered locally instead has taken a real candidate's slot</td></tr>
         <tr><td><span class="stage-tag">2 screen</span></td><td><code>screen.py</code> — keep only matching listings, record why each reject was dropped</td></tr>
         <tr><td><span class="stage-tag">3 enrich</span></td><td><code>enrich.py</code> (coordinator), <code>crosswalk.py</code> (ZIP→county), <code>assessor.py</code> (tax value + zoning), <code>schools.py</code>, <code>solar.py</code>, <code>redfin_scraper.py</code> (page extras)</td></tr>
         <tr><td><span class="stage-tag">4 analyze</span></td><td><code>analyze.py</code> (the money math), <code>zoning_potential.py</code> (backyard cottage / lot-split / duplex upside), <code>appreciation.py</code> (value-growth signals)</td></tr>
@@ -224,7 +224,7 @@
     <summary>Supporting folders</summary>
     <div class="details-body">
       <table>
-        <tr><td><code>tests/</code></td><td>484 automated tests — roughly one file per building block + a full pipeline test</td></tr>
+        <tr><td><code>tests/</code></td><td>506 automated tests — roughly one file per building block + a full pipeline test</td></tr>
         <tr><td><code>fixtures/</code></td><td>Fake sample listings for offline testing</td></tr>
         <tr><td><code>data/</code></td><td>Downloaded listing files, the <code>scout.db</code> database, and the area-market slice from <code>--market-refresh</code></td></tr>
         <tr><td><code>outputs/</code></td><td>Results of each run (auto-deleted after 7 days)</td></tr>
@@ -336,7 +336,7 @@ python scout.py --from-analyzed outputs/…_analyzed.json   # reuse saved data, 
   default and write state to the wrong place without ever erroring.</p>
 
   <h2 id="s8"><span class="num">8.</span> Testing</h2>
-  <p>The project has <strong>484 automated tests</strong> (run with <code>pytest</code>) — roughly one test file per
+  <p>The project has <strong>506 automated tests</strong> (run with <code>pytest</code>) — roughly one test file per
   building block, plus an end-to-end test of the whole pipeline. Outside services are faked during tests so they run
   fast and offline. Policy: the full suite must pass before every commit, and new code brings its own tests.</p>
 
