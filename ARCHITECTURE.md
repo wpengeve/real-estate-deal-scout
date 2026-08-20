@@ -57,8 +57,12 @@ order and write the words*, never to compute numbers.
 
 Say you tell it: *"3-bed rentals under $900k in Seattle, 25% down."*
 
-1. **Fetch** pulls ~200 Seattle listings from Rentcast.
-2. **Screen** drops anything over $900k, under 3 beds, or outside Seattle → ~40 left.
+1. **Fetch** pulls Seattle listings from Redfin (through ScraperAPI), asking Redfin
+   itself for 3+ beds under $900k so the filtering happens before we pay for it.
+   One call comes back with ~43 homes.
+2. **Screen** re-checks every criterion locally and drops what slipped through →
+   ~40 left. Little is dropped here now, which is the point: what the backend can
+   filter, the backend filters.
 3. **Enrich** looks up, for each of the 40: likely monthly rent (HUD), nearby schools
    and their test scores, rooftop sun hours (NREL), zoning + tax value (county records).
 4. **Analyze** computes, *using your 25% down*: this house rents for ~$3,200/mo, so
@@ -323,7 +327,7 @@ was never seen to fail proves nothing.
 
 ## 9. Where the project is heading
 
-- **Phase 1 — "anyone can use it": essentially done.** Live listings (Rentcast) ✓,
+- **Phase 1 — "anyone can use it": essentially done.** Live listings (Redfin via ScraperAPI) ✓,
   plain-English intake ✓, website ✓. Remaining: deploy it to a public host.
 - **Phase 2 — "multi-market + accounts": mostly done.** Login, user accounts, and
   saved report history already exist in `db.py`.

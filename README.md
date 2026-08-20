@@ -208,6 +208,6 @@ pytest
 
 See [TODOS.md](TODOS.md) for the full platform roadmap.
 
-- **Phase 1 — "anyone can use it": essentially done.** Live listings (Rentcast), plain-English intake, and the FastAPI web app all shipped; remaining: deploy to a public host.
+- **Phase 1 — "anyone can use it": essentially done.** Live listings (Redfin via ScraperAPI), plain-English intake, and the FastAPI web app all shipped; remaining: deploy to a public host.
 - **Phase 2 — "multi-market + accounts": mostly done.** Login, user accounts, and saved report history already exist.
 - **Phase 3 — "retention": not started.** Auto re-run saved searches, email alerts, and a thumbs up/down feedback loop.

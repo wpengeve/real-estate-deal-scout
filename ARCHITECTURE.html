@@ -171,8 +171,8 @@
     <h3>A concrete example — follow one house through the line</h3>
     <p style="margin:4px 0">Say you tell it: <em>"3-bed rentals under $900k in Seattle, 25% down."</em></p>
     <ol>
-      <li><strong>Fetch</strong> pulls ~200 Seattle listings from Rentcast.</li>
-      <li><strong>Screen</strong> drops anything over $900k, under 3 beds, or outside Seattle → ~40 left.</li>
+      <li><strong>Fetch</strong> pulls Seattle listings from Redfin (through ScraperAPI), asking Redfin itself for 3+ beds under $900k so the filtering happens before we pay for it. One call comes back with ~43 homes.</li>
+      <li><strong>Screen</strong> re-checks every criterion locally and drops what slipped through &rarr; ~40 left. Little is dropped here now, which is the point: what the backend can filter, the backend filters.</li>
       <li><strong>Enrich</strong> looks up, for each of the 40: likely rent (HUD), nearby schools + test scores, rooftop sun hours (NREL), zoning + tax value (county records).</li>
       <li><strong>Analyze</strong> computes, using your 25% down: rents for ~$3,200/mo → cap rate 4.1%, cash-on-cash 6.3%, cash flow +$180/mo.</li>
       <li><strong>Flag risks</strong> notices it sits in a FEMA flood zone → adds a MEDIUM risk flag.</li>

@@ -30,16 +30,18 @@ API key. Run `python scout.py --market-refresh WA` once to switch it on.
 one free from the same data), and no worker infrastructure yet (refresh is a manual command).
 
 **Next up when you want it:** pick a host, and verify a sending domain so login email
-reaches strangers. P2 (tighter listing scope) is done; P3 (school district names) is
-still open, and two new items came out of P2 — Redfin result paging, and a lapsed
-Rentcast subscription.
+reaches strangers. P2 (tighter listing scope) is done, and it left one thing
+behind: a search still only sees ~43 of the ~370 homes that match it (P2a). P3
+(school district names) is still open.
 
 ---
 
 ## Done ✓
 
 ### Data & enrichment
-- **Live listings** — ScraperAPI (Redfin proxy) + **Rentcast** (multi-market) backends, with response caching to conserve credits
+- **Live listings** — **ScraperAPI (Redfin proxy)** is the live path; Rentcast is a
+  second backend you switch on by hand in `config.yaml` (see P2a). Both cache responses
+  to conserve credits, and both are sent every criterion they can filter on.
 - **Single-property analysis** — paste a Redfin URL (or plain address, auto-resolved) to analyze one property
 - **HUD Fair Market Rents** — ZIP→county crosswalk, 1.0× multiplier (validated vs Zillow Apr 2026)
 - **County assessor enrichment** — King / Snohomish / Pierce zoning + tax assessed value
@@ -164,29 +166,40 @@ the subscription item below. 22 tests.
 The run log now records `data_source`, because working out that the junk was CSV-only
 took reconstructing it from listing counts.
 
-### P2a — Redfin paging: we read 1 page of 9
-**What:** The structured ScraperAPI response for a Seattle search carries a
-`next_pages` list with 8 more pages — ~370 listings available, ~43 fetched. Every run
-sees the first page only.
-**Why:** This is now the binding limit on result quality, and it's invisible: the
-pipeline reports "43 listings fetched" as if that were the market.
-**The catch, and why this isn't autonomous:** each page is another 25-credit call, so
-following all of them is a 9× credit multiplier per run — 225 of the 1,000 free
-monthly credits for one search. Worth deciding deliberately: fetch N pages with N
-configurable, or leave it at one and say so in the UI.
-**Effort:** S to implement, the sizing is the real decision.
+### P2a — Result coverage: a search sees ~43 of ~370 matching homes
+**What:** One ScraperAPI call returns a single page. The response carries a
+`next_pages` list with 8 more, so a Seattle search that matches ~370 homes shows the
+pipeline 43 of them — and reports "43 listings fetched" as if that were the market.
+**Why it's the top listings item now:** with P2 done, the query is as tight as the
+backends allow, so this is what's left standing between a search and the best
+available deal. Ranking 43 homes well doesn't help if the best one is on page 4.
 
-### P2b — Rentcast subscription is inactive
-**What:** The key in `.env` returns `403 billing/subscription-inactive`. The
-multi-market backend is dead until the free tier is re-activated at
-app.rentcast.io — nothing in the code can work around it.
-**Why:** It's the only non-WA path; ScraperAPI/Redfin is the primary one, so this is
-not urgent, but the new query changes above are documentation-derived and **unverified
-against a live response** for exactly this reason.
-**Fixed meanwhile:** a 403 used to surface as "Rentcast returned HTTP 403 for
-Seattle, WA", which reads like a bad city name. It now names the subscription and
-links the dashboard.
-**Effort:** none in code — an account action.
+**Two ways out, and they are the same decision — which is why the Rentcast backend
+is still here:**
+
+| | Redfin paging | Rentcast |
+|---|---|---|
+| Coverage | follow `next_pages` | 500 per call, paginated |
+| Cost | 25 credits/page — 9× per search, 225 of 1,000 monthly credits | 1 call of 50/month |
+| Extras | needs a Google geocode per listing | returns lat/lon, `year_built`, HOA, photos |
+| Blocker | none — just credits | subscription lapsed (below) |
+
+Neither is autonomous: one multiplies ScraperAPI spend 9×, the other needs an
+account re-activated. Sensible middle ground is a configurable page count defaulting
+to 1, so the current behaviour is unchanged but the ceiling is a setting rather than
+a hidden fact.
+**Effort:** S to implement either. The sizing is the real decision.
+
+**Rentcast's actual status, since it reads as more load-bearing than it is:**
+nothing selects it automatically — `data_source` comes from `config.yaml`, chat
+intake forces `scraperapi` when it resolves a new market, and the shipped config
+says `csv`. It runs only if you hand-edit the config. The key currently returns
+`403 billing/subscription-inactive`, so re-activating the free tier at
+app.rentcast.io is the only thing standing between it and working; nothing in the
+code can route around that. That 403 used to surface as "Rentcast returned HTTP 403
+for Seattle, WA", which reads like a bad city name — it now names the subscription
+and links the dashboard. Its P2 query changes are documentation-derived and
+**unverified against a live response** for the same reason.
 
 ### P3 — School district name for real listings
 **What:** `school_district` field is null for scraped listings (no good free source).
@@ -206,7 +219,7 @@ deals for *their* specific profile.
 computed for *your* down payment and rate, then explained by AI.
 
 ### Phase 1 — "Anyone can use it" — ✓ essentially complete
-- [x] Live listings API — ScraperAPI + Rentcast
+- [x] Live listings API — ScraperAPI (Redfin); Rentcast available as an opt-in backend
 - [x] Chat intake — `--chat` (CLI) and web chat
 - [x] Web wrapper — FastAPI `app.py` with `/api/run` + report serving
 - [ ] Public deployment (see Active P1)
