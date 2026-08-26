@@ -22,6 +22,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("SCOUT_OUTPUTS_DIR", str(tmp_path / "outputs"))
     monkeypatch.setenv("BASE_URL", "https://dealscout.example")
     monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    monkeypatch.delenv("EMAIL_SENDING_ENABLED", raising=False)
     db_module.reset_engine()
     with TestClient(app_module.app) as c:
         yield c
@@ -89,7 +90,7 @@ def test_emailed_link_actually_logs_you_in(client, sends):
 # ── the console fallback ──────────────────────────────────────────────────────
 
 def test_unconfigured_provider_falls_back_to_the_console(client, capsys):
-    """No RESEND_API_KEY — the real module returns False and you still get in."""
+    """Nothing switched on — the real module returns False and you still get in."""
     res = client.post("/api/auth/request", json={"email": "buyer@example.com"})
 
     assert res.status_code == 200
@@ -136,4 +137,11 @@ def test_login_box_mentions_the_console_when_unconfigured(client):
 
 def test_login_box_drops_the_console_note_once_email_works(client, monkeypatch):
     monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    monkeypatch.setenv("EMAIL_SENDING_ENABLED", "true")
     assert "server console" not in client.get("/").text
+
+
+def test_login_box_still_says_console_while_sending_is_paused(client, monkeypatch):
+    """A key on its own doesn't unpause: the box must not promise an email."""
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    assert "server console" in client.get("/").text

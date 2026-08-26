@@ -186,10 +186,12 @@ Two more for login email, which is what lets anyone but you sign in:
 
 - `BASE_URL` — your public origin. Without it, login links point at `localhost` and are
   delivered but unusable.
-- `RESEND_API_KEY` — emails the magic link. Left unset, the link is only printed to the
-  server console, so nobody else can log in. Resend also needs a **verified sending
-  domain**; until you have one its shared onboarding address delivers to your own
-  address only. Optionally set `EMAIL_FROM` to the sender you want shown.
+- `EMAIL_SENDING_ENABLED` + `RESEND_API_KEY` — **both** are required before any mail
+  leaves the machine; the switch is off by default, so a key on its own sends nothing.
+  Until then the link is only printed to the server console, which means nobody but you
+  can log in. Resend also needs a **verified sending domain**; until you have one its
+  shared onboarding address delivers to your own address only. Optionally set
+  `EMAIL_FROM` to the sender you want shown.
 
 Resource use is modest — a full market refresh peaks at ~61 MB, so a 256 MB
 instance is enough.
@@ -200,7 +202,7 @@ instance is enough.
 pytest
 ```
 
-506 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, area market context, settings loading, conversational intake, and full pipeline integration.
+521 tests covering screening logic, financial formulas, enrichment (mocked), risk flagging, zoning, appreciation signals, school lookups, solar data, area market context, settings loading, conversational intake, and full pipeline integration.
 
 > For the file-by-file layout, see the [Architecture & Code Guide](ARCHITECTURE.md#3-directory-map--what-each-file-does).
 

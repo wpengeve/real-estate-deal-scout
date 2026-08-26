@@ -2,8 +2,14 @@
 Transactional email — currently just the magic-link login.
 
 Called by `app.request_magic_link`. When the send succeeds the link goes only to
-the recipient's inbox; when it fails — or when no key is set — the caller prints
+the recipient's inbox; when it fails — or when sending is off — the caller prints
 the link to the server console instead, which is the local-development path.
+
+SENDING IS OFF UNTIL EXPLICITLY TURNED ON. `EMAIL_SENDING_ENABLED` must be truthy
+*and* RESEND_API_KEY set before anything leaves the machine. The switch exists so
+that "paused" is a decision on the record rather than a side effect of a missing
+key: without it, the day a key is added to try something out, real mail starts
+going to real people with nothing else having changed.
 
 Provider is Resend: free tier is 3,000 emails/month and 100/day, which is far
 past anything this needs, and the API is a single JSON POST so there's no SDK to
@@ -33,9 +39,24 @@ _DEFAULT_FROM = "Deal Scout <onboarding@resend.dev>"
 _LINK_TTL_MINUTES = 15  # must match create_auth_token()
 
 
+# Anything else — unset, "", "false", "0" — leaves sending off. The default is
+# off in both directions: a typo'd value pauses mail rather than releasing it.
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def is_enabled() -> bool:
+    """False unless EMAIL_SENDING_ENABLED explicitly turns sending on."""
+    return os.getenv("EMAIL_SENDING_ENABLED", "").strip().lower() in _TRUTHY
+
+
 def is_configured() -> bool:
-    """True when a real send is possible. False means console-only delivery."""
-    return bool(os.getenv("RESEND_API_KEY"))
+    """
+    True when a real send is possible: switched on *and* holding a key.
+
+    False means console-only delivery, which is what the sign-in box tells the
+    user to expect.
+    """
+    return is_enabled() and bool(os.getenv("RESEND_API_KEY"))
 
 
 def _sender() -> str:
@@ -121,8 +142,18 @@ def send_magic_link(to: str, link: str) -> bool:
     Deliver a login link. Returns True only if the provider accepted it.
 
     Never raises. A False return means the link was logged to the console
-    instead, which is the local-development path.
+    instead, which is the local-development path — and it is what happens while
+    EMAIL_SENDING_ENABLED is off, regardless of whether a key is present.
     """
+    # Checked before the key, and logged separately, so "why didn't that send?"
+    # is answerable from the log line alone.
+    if not is_enabled():
+        logger.info(
+            "Email sending is paused (EMAIL_SENDING_ENABLED is not set) — "
+            "magic link goes to the console only"
+        )
+        return False
+
     api_key = os.getenv("RESEND_API_KEY")
     if not api_key:
         logger.info("RESEND_API_KEY not set — magic link goes to the console only")

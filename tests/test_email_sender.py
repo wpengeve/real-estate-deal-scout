@@ -15,7 +15,12 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from tools import email_sender
-from tools.email_sender import is_configured, render_magic_link_email, send_magic_link
+from tools.email_sender import (
+    is_configured,
+    is_enabled,
+    render_magic_link_email,
+    send_magic_link,
+)
 
 _API_URL = "https://api.resend.com/emails"
 _LINK = "https://dealscout.app/auth/verify?token=abc123"
@@ -23,15 +28,56 @@ _LINK = "https://dealscout.app/auth/verify?token=abc123"
 
 @pytest.fixture
 def with_key(monkeypatch):
+    """A fully switched-on sender: the kill switch is off by default."""
     monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    monkeypatch.setenv("EMAIL_SENDING_ENABLED", "true")
     monkeypatch.delenv("EMAIL_FROM", raising=False)
 
 
 # ── configuration ─────────────────────────────────────────────────────────────
 
 def test_not_configured_without_key(monkeypatch):
+    monkeypatch.setenv("EMAIL_SENDING_ENABLED", "true")
     monkeypatch.delenv("RESEND_API_KEY", raising=False)
     assert is_configured() is False
+
+
+# ── the kill switch ───────────────────────────────────────────────────────────
+
+def test_sending_is_off_unless_switched_on(monkeypatch):
+    """
+    The default has to be off. If it were on, adding a key to try something out
+    would start mailing real people with nothing else having changed.
+    """
+    monkeypatch.delenv("EMAIL_SENDING_ENABLED", raising=False)
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    assert is_enabled() is False
+    assert is_configured() is False
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on", " true "])
+def test_switch_accepts_the_usual_yes_spellings(monkeypatch, value):
+    monkeypatch.setenv("EMAIL_SENDING_ENABLED", value)
+    assert is_enabled() is True
+
+
+@pytest.mark.parametrize("value", ["", "0", "false", "no", "off", "ture"])
+def test_anything_else_leaves_sending_paused(monkeypatch, value):
+    """A typo pauses mail rather than releasing it."""
+    monkeypatch.setenv("EMAIL_SENDING_ENABLED", value)
+    assert is_enabled() is False
+
+
+def test_paused_sender_never_reaches_the_provider(httpx_mock: HTTPXMock, monkeypatch):
+    """
+    The check must come before the HTTP call, not after — a paused sender that
+    still hits the provider would send the mail and merely lie about it.
+    """
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    monkeypatch.delenv("EMAIL_SENDING_ENABLED", raising=False)
+
+    assert send_magic_link("buyer@example.com", _LINK) is False
+    assert httpx_mock.get_requests() == []
 
 
 def test_configured_with_key(with_key):
@@ -114,6 +160,7 @@ def test_api_key_is_sent_as_a_bearer_token(httpx_mock: HTTPXMock, with_key):
 
 def test_email_from_overrides_the_default_sender(httpx_mock: HTTPXMock, monkeypatch):
     monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    monkeypatch.setenv("EMAIL_SENDING_ENABLED", "true")
     monkeypatch.setenv("EMAIL_FROM", "Scout <hello@mydomain.test>")
     httpx_mock.add_response(url=_API_URL, json={"id": "msg_1"})
 
